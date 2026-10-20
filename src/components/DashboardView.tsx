@@ -18,10 +18,13 @@ import {
   Plus,
   FileSpreadsheet,
   RotateCcw,
-  Receipt
+  Receipt,
+  Boxes,
+  ShieldAlert,
+  Wallet
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { TabKey, CheckoutBill } from '../types';
+import { TabKey, CheckoutBill, isUserAdmin } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 
 interface DashboardViewProps {
@@ -33,7 +36,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const [selectedBill, setSelectedBill] = useState<CheckoutBill | null>(null);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week'>('all');
 
-  const isStaff = currentUser?.role === 'staff';
+  const isStaff = !isUserAdmin(currentUser);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -81,7 +84,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <button
               onClick={() => onNavigate('branch_scan')}
               className="p-5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-left transition shadow-lg shadow-indigo-600/30 flex flex-col justify-between group"
@@ -127,6 +130,54 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               <div>
                 <div className="text-base font-bold">3. ປະຫວັດໃບບິນ</div>
                 <p className="text-xs text-slate-300 mt-1">ກວດເບິ່ງ ແລະ ພິມໃບບິນທີ່ໄດ້ຈ່າຍແລ້ວ</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => onNavigate('parcel_tracking')}
+              className="p-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-left transition shadow-md flex flex-col justify-between group"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Boxes className="w-6 h-6 text-white" />
+                </div>
+                <ArrowUpRight className="w-5 h-5 text-blue-200 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
+              </div>
+              <div>
+                <div className="text-base font-bold">4. ຕິດຕາມເຄື່ອງທັງໝົດ</div>
+                <p className="text-xs text-blue-100 mt-1">ຄົ້ນຫາຊື່, ເບີໂທ, ລະຫັດຕິດຕາມພັດສະດຸ</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => onNavigate('bills_history')}
+              className="p-5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-left transition shadow-md flex flex-col justify-between group"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
+                  <CreditCard className="w-6 h-6 text-white" />
+                </div>
+                <ArrowUpRight className="w-5 h-5 text-amber-200 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
+              </div>
+              <div>
+                <div className="text-base font-bold">5. ຕິດຕາມໜີ້ & ຊຳລະຄ້າງ</div>
+                <p className="text-xs text-amber-100 mt-1">ຕິດຕາມລູກຄ້າຕິດໜີ້, ຍອດຄ້າງຊຳລະ ແລະ ຕັດໜີ້</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => onNavigate('financial_ledger')}
+              className="p-5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-left transition shadow-md flex flex-col justify-between group"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Wallet className="w-6 h-6 text-white" />
+                </div>
+                <ArrowUpRight className="w-5 h-5 text-teal-200 group-hover:translate-x-1 group-hover:-translate-y-1 transition" />
+              </div>
+              <div>
+                <div className="text-base font-bold">6. ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ</div>
+                <p className="text-xs text-teal-100 mt-1">ບັນທຶກຄ່າໃຊ້ຈ່າຍ ແລະ ລາຍຮັບສາຂາປະຈຳວັນ</p>
               </div>
             </button>
           </div>

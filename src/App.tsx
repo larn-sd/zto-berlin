@@ -10,9 +10,8 @@ import { DiscrepancyView } from './components/DiscrepancyView';
 import { CustomerCheckoutView } from './components/CustomerCheckoutView';
 import { BillsHistoryView } from './components/BillsHistoryView';
 import { CustomerDirectoryView } from './components/CustomerDirectoryView';
-import { DisputeClaimsView } from './components/DisputeClaimsView';
 import { FinancialLedgerView } from './components/FinancialLedgerView';
-import { TabKey } from './types';
+import { TabKey, isUserAdmin } from './types';
 
 const MainLayout: React.FC = () => {
   const { currentUser } = useApp();
@@ -22,26 +21,26 @@ const MainLayout: React.FC = () => {
     return <LoginView />;
   }
 
-  // Enforce staff permissions: Staff can access dashboard, parcel_tracking, branch_scan, customer_checkout, bills_history, disputes, financial_ledger
-  const isStaff = currentUser.role === 'staff';
-  const staffAllowedTabs: TabKey[] = ['dashboard', 'parcel_tracking', 'branch_scan', 'customer_checkout', 'bills_history', 'disputes', 'financial_ledger'];
-  const activeTab: TabKey = (isStaff && !staffAllowedTabs.includes(currentTab)) ? 'dashboard' : currentTab;
+  // Enforce staff permissions: Staff sees ONLY: 1. ຕິດຕາມເຄື່ອງ, 2. ສະແກນຮັບເຂົ້າ, 3. ສະແກນຈ່າຍລູກຄ້າ, 4. ປະຫວັດບິນ
+  // Admin (larn) sees ALL tabs.
+  const isStaff = !isUserAdmin(currentUser);
+  const staffAllowedTabs: TabKey[] = ['parcel_tracking', 'branch_scan', 'customer_checkout', 'bills_history'];
+  const activeTab: TabKey = (isStaff && !staffAllowedTabs.includes(currentTab)) ? 'parcel_tracking' : currentTab;
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
       <Navbar currentTab={activeTab} onSelectTab={setCurrentTab} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'dashboard' && <DashboardView onNavigate={setCurrentTab} />}
-        {activeTab === 'warehouse_inbound' && !isStaff && <WarehouseInboundView />}
+        {activeTab === 'dashboard' && !isStaff && <DashboardView onNavigate={setCurrentTab} />}
+        {activeTab === 'warehouse_inbound' && !isStaff && <WarehouseInboundView onNavigateTab={setCurrentTab} />}
         {activeTab === 'parcel_tracking' && <ParcelTrackingView onNavigateTab={setCurrentTab} />}
         {activeTab === 'branch_scan' && <BranchScanView onNavigateTab={setCurrentTab} />}
         {activeTab === 'discrepancy' && !isStaff && <DiscrepancyView />}
         {activeTab === 'customer_checkout' && <CustomerCheckoutView />}
         {activeTab === 'bills_history' && <BillsHistoryView />}
         {activeTab === 'customers' && !isStaff && <CustomerDirectoryView />}
-        {activeTab === 'disputes' && <DisputeClaimsView />}
-        {activeTab === 'financial_ledger' && <FinancialLedgerView />}
+        {activeTab === 'financial_ledger' && !isStaff && <FinancialLedgerView />}
       </main>
 
       {/* Footer */}

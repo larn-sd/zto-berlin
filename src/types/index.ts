@@ -8,7 +8,18 @@ export interface User {
   branchName: string;
   avatar?: string;
   phone?: string;
+  password?: string;
 }
+
+export const isUserAdmin = (user: User | null | undefined): boolean => {
+  if (!user) return false;
+  return user.role === 'admin' || user.role === 'owner';
+};
+
+export const isUserStaff = (user: User | null | undefined): boolean => {
+  if (!user) return false;
+  return !isUserAdmin(user);
+};
 
 export type ParcelStatus = 
   | 'pending_arrival'    // ສາງໃຫຍ່ສະແກນມາ ແຕ່ຍັງບໍ່ທັນສະແກນເຂົ້າສາຂາ (ຍັງບໍ່ຮອດ)
@@ -53,7 +64,7 @@ export interface ArrivalScanLog {
   staffId: string;
 }
 
-export type PaymentMethod = 'cash' | 'transfer';
+export type PaymentMethod = 'cash' | 'transfer' | 'debt';
 
 export interface CheckoutBill {
   id: string;                    // ລະຫັດໃບບິນ (eg: INV-20241016-001)
@@ -66,7 +77,11 @@ export interface CheckoutBill {
   totalWarehouseCost: number;    // ຕົ້ນທຶນລວມທີ່ສາງໃຫຍ່ຕັດ
   totalCustomerPrice: number;    // ລວມເງິນທີ່ເກັບນໍາລູກຄ້າ
   profit: number;                // ກໍາໄລສາຂາ
-  paymentMethod: PaymentMethod;  // ວິທີການຊໍາລະ: ເງິນສົດ / ໂອນ
+  paymentMethod: PaymentMethod;  // ວິທີການຊໍາລະ: ເງິນສົດ / ໂອນ / ຕິດໜີ້ (debt)
+  paymentStatus?: 'paid' | 'unpaid'; // ສະຖານະການຊໍາລະ: ຊໍາລະແລ້ວ / ຕິດໜີ້
+  paidAt?: string;               // ວັນທີມາຊໍາລະໜີ້ຕົວຈິງ
+  paidMethod?: 'cash' | 'transfer'; // ວິທີຊໍາລະຕອນຕັດໜີ້
+  paidTransferProofUrl?: string; // ຫຼັກຖານການໂອນຕອນຕັດໜີ້
   cashReceived?: number;         // ຈຳນວນເງິນສົດທີ່ຮັບ
   cashChange?: number;           // ເງິນທອນ
   transferBank?: string;         // ທະນາຄານທີ່ໂອນ (BCEL One, LDB, etc.)
@@ -95,20 +110,6 @@ export interface Customer {
   phoneAliases?: string[];  // ເບີໂທໃນຮູບແບບອື່ນໆ ເຊັ່ນ: ['59977559', '2059977559']
 }
 
-export type DisputeStatus = 'pending' | 'investigating' | 'approved' | 'rejected' | 'resolved';
-
-export interface DisputeClaim {
-  id: string;
-  created_at?: string;
-  tracking_number: string;
-  customer_name: string;
-  customer_phone?: string;
-  status: DisputeStatus;
-  notes?: string;
-  claim_amount?: number;
-  created_by?: string;
-}
-
 export interface FinancialLedgerEntry {
   id: string;
   created_at?: string;
@@ -129,7 +130,18 @@ export type TabKey =
   | 'customer_checkout'
   | 'bills_history'
   | 'customers'
-  | 'disputes'
   | 'financial_ledger'
   | 'settings';
+
+export type DisputeStatus = 'pending' | 'investigating' | 'approved' | 'rejected' | 'resolved';
+
+export interface DisputeClaim {
+  id: string;
+  tracking_number: string;
+  customer_name: string;
+  status: DisputeStatus;
+  notes?: string;
+  claim_amount?: number;
+  created_at?: string;
+}
 

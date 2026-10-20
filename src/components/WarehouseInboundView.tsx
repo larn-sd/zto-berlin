@@ -6,32 +6,50 @@ import {
   Search, 
   FileSpreadsheet, 
   Calendar, 
-  Trash2, 
   CheckCircle2, 
   Clock, 
-  AlertCircle, 
   FileCheck, 
   X, 
   Scale, 
-  Box, 
   Coins,
-  Edit3 
+  ArrowRight,
+  Eye,
+  Boxes,
+  Truck,
+  TrendingUp,
+  PackageCheck
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { parseExcelFile, downloadWarehouseExcelTemplate, ParsedRow, formatDateDisplay } from '../utils/excel';
-import { WarehouseParcel } from '../types';
+import { parseExcelFile, downloadWarehouseExcelTemplate, ParsedRow, formatDateDisplay, exportToExcel } from '../utils/excel';
+import { WarehouseParcel, TabKey } from '../types';
 
-export const WarehouseInboundView: React.FC = () => {
-  const { parcels, addWarehouseParcels, addSingleParcel, updateParcel, deleteParcel } = useApp();
+interface WarehouseInboundViewProps {
+  onNavigateTab?: (tab: TabKey) => void;
+}
+
+interface DailyShipmentSummary {
+  date: string;
+  totalParcels: number;
+  totalWeight: number;
+  totalWarehouseCost: number;
+  totalCustomerPrice: number;
+  arrivedCount: number;
+  pendingCount: number;
+  deliveredCount: number;
+  parcels: WarehouseParcel[];
+}
+
+export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNavigateTab }) => {
+  const { parcels, addWarehouseParcels, addSingleParcel } = useApp();
   
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending_arrival' | 'in_branch' | 'delivered'>('all');
+  const [selectedDateDetails, setSelectedDateDetails] = useState<DailyShipmentSummary | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [previewRows, setPreviewRows] = useState<ParsedRow[] | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Form state for single parcel matching the 11 fields
+  // Form state for single parcel matching the 11 standard fields
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0], // 1. ວັນທີ
     customerName: '',                             // 2. ຊື່ລູກຄ້າ
@@ -46,64 +64,64 @@ export const WarehouseInboundView: React.FC = () => {
     notes: ''                                     // 11. ໝາຍເຫດ
   });
 
-  // Edit parcel state
-  const [editingParcel, setEditingParcel] = useState<WarehouseParcel | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    date: '',
-    customerName: '',
-    customerPhone: '',
-    shippingCode: '',
-    parcelCode: '',
-    weightKg: '',
-    customerPrice: '',
-    warehouseCost: '',
-    volumeCbm: '',
-    warehouseCostYuan: '',
-    notes: '',
-    status: 'pending_arrival' as WarehouseParcel['status']
+  // Only consider parcels originating from the warehouse (manifested)
+  const warehouseParcels = parcels.filter(p => !p.isUnmanifested && !p.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ'));
+
+  // Group by date to show daily summary: "ວັນທີໃດ ສາງໃຫຍ່ສະແກນມາຈໍານວນເທົາໃດ"
+  const dateGroups: { [date: string]: WarehouseParcel[] } = {};
+  warehouseParcels.forEach(p => {
+    const d = p.date || p.importedAt.split(' ')[0] || 'ບໍ່ລະບຸ';
+    if (!dateGroups[d]) {
+      dateGroups[d] = [];
+    }
+    dateGroups[d].push(p);
   });
 
-  // Delete confirm modal state
-  const [deleteConfirmParcel, setDeleteConfirmParcel] = useState<WarehouseParcel | null>(null);
+  const dailySummaries: DailyShipmentSummary[] = Object.keys(dateGroups)
+    .sort((a, b) => b.localeCompare(a))
+    .map(date => {
+      const items = dateGroups[date];
+      const totalWeight = items.reduce((sum, p) => sum + (p.weightKg || 0), 0);
+      const totalWarehouseCost = items.reduce((sum, p) => sum + (p.warehouseCost || 0), 0);
+      const totalCustomerPrice = items.reduce((sum, p) => sum + (p.customerPrice || 0), 0);
+      const arrivedCount = items.filter(p => p.status === 'in_branch' || p.status === 'delivered').length;
+      const pendingCount = items.filter(p => p.status === 'pending_arrival').length;
+      const deliveredCount = items.filter(p => p.status === 'delivered').length;
 
-  const openEditModal = (p: WarehouseParcel) => {
-    setEditingParcel(p);
-    setEditFormData({
-      date: p.date || new Date().toISOString().split('T')[0],
-      customerName: p.customerName || '',
-      customerPhone: p.customerPhone || '',
-      shippingCode: p.shippingCode || '',
-      parcelCode: p.parcelCode || '',
-      weightKg: p.weightKg !== undefined ? String(p.weightKg) : '',
-      customerPrice: String(p.customerPrice || 0),
-      warehouseCost: String(p.warehouseCost || 0),
-      volumeCbm: p.volumeCbm !== undefined ? String(p.volumeCbm) : '',
-      warehouseCostYuan: p.warehouseCostYuan !== undefined ? String(p.warehouseCostYuan) : '',
-      notes: p.notes || '',
-      status: p.status
-    });
-  };
-
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingParcel) return;
-
-    updateParcel(editingParcel.id, {
-      date: editFormData.date,
-      customerName: editFormData.customerName.trim() || 'ລູກຄ້າ',
-      customerPhone: editFormData.customerPhone.trim(),
-      shippingCode: (editFormData.shippingCode || '').trim().toUpperCase(),
-      parcelCode: (editFormData.parcelCode || '').trim().toUpperCase(),
-      weightKg: editFormData.weightKg ? Number(editFormData.weightKg) : undefined,
-      customerPrice: Number(editFormData.customerPrice) || 0,
-      warehouseCost: Number(editFormData.warehouseCost) || 0,
-      volumeCbm: editFormData.volumeCbm ? String(editFormData.volumeCbm) : undefined,
-      warehouseCostYuan: editFormData.warehouseCostYuan ? Number(editFormData.warehouseCostYuan) : undefined,
-      notes: editFormData.notes.trim(),
-      status: editFormData.status
+      return {
+        date,
+        totalParcels: items.length,
+        totalWeight,
+        totalWarehouseCost,
+        totalCustomerPrice,
+        arrivedCount,
+        pendingCount,
+        deliveredCount,
+        parcels: items
+      };
     });
 
-    setEditingParcel(null);
+  const filteredSummaries = dailySummaries.filter(summary => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase().trim();
+    return (
+      summary.date.includes(term) ||
+      summary.parcels.some(p => 
+        p.parcelCode.toLowerCase().includes(term) ||
+        p.shippingCode.toLowerCase().includes(term) ||
+        p.customerName.toLowerCase().includes(term) ||
+        p.customerPhone.includes(term)
+      )
+    );
+  });
+
+  const totalAllShipmentParcels = warehouseParcels.length;
+  const totalArrivedParcels = warehouseParcels.filter(p => p.status === 'in_branch' || p.status === 'delivered').length;
+  const totalPendingParcels = warehouseParcels.filter(p => p.status === 'pending_arrival').length;
+  const totalWarehouseCostSum = warehouseParcels.reduce((sum, p) => sum + (p.warehouseCost || 0), 0);
+
+  const formatKip = (val: number) => {
+    return new Intl.NumberFormat('lo-LA').format(val) + ' ₭';
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,63 +132,56 @@ export const WarehouseInboundView: React.FC = () => {
       setIsUploading(true);
       const rows = await parseExcelFile(file);
       if (rows.length === 0) {
-        alert('ບໍ່ພົບຂໍ້ມູນພັດສະດຸໃນຟາຍ Excel ຫຼື ຫົວຖັນບໍ່ກົງກັບຮູບແບບທີ່ກຳນົດ. ກະລຸນາດາວໂຫລດ Template ຕົວຢ່າງ 11 ຖັນ.');
-      } else {
-        setPreviewRows(rows);
+        alert('ບໍ່ພົບຂໍ້ມູນໃນໄຟລ໌ Excel ກະລຸນາກວດສອບວ່າໃຊ້ຮູບແບບ 11 ຖັນຕາມແບບຟອມ.');
+        return;
       }
+      setPreviewRows(rows);
     } catch (err: any) {
-      alert('ເກີດຂໍ້ຜິດພາດໃນການອ່ານຟາຍ Excel: ' + (err?.message || 'Invalid format'));
+      alert(`ເກີດຂໍ້ຜິດພາດໃນການອ່ານໄຟລ໌ Excel: ${err.message || 'ຮູບແບບໄຟລ໌ບໍ່ຖືກຕ້ອງ'}`);
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
   const confirmImportPreview = () => {
-    if (!previewRows) return;
-    const itemsToAdd = previewRows.map(r => ({
+    if (!previewRows || previewRows.length === 0) return;
+    const mappedRows = previewRows.map(r => ({
+      ...r,
       date: r.date || new Date().toISOString().split('T')[0],
-      customerName: r.customerName || 'ລູກຄ້າບໍ່ລະບຸ',
+      customerName: r.customerName || 'ລູກຄ້າ',
       customerPhone: r.customerPhone || '',
-      shippingCode: r.shippingCode || `EXP-${Date.now().toString().slice(-4)}`,
-      parcelCode: r.parcelCode || `PKG-${Date.now().toString().slice(-4)}`,
-      weightKg: r.weightKg !== undefined ? Number(r.weightKg) : undefined,
-      customerPrice: Number(r.customerPrice) || 0,
-      warehouseCost: Number(r.warehouseCost) || 0,
-      volumeCbm: r.volumeCbm || undefined,
-      warehouseCostYuan: r.warehouseCostYuan !== undefined ? Number(r.warehouseCostYuan) : undefined,
-      notes: r.notes || ''
+      shippingCode: r.shippingCode || '',
+      parcelCode: r.parcelCode || '',
+      customerPrice: r.customerPrice || 0,
+      warehouseCost: r.warehouseCost || 0
     }));
-
-    const count = addWarehouseParcels(itemsToAdd);
-    alert(`ນຳເຂົ້າສຳເລັດ ${count} ລາຍການຈາກ Excel ຕາມ 11 ຖັນ!`);
+    const count = addWarehouseParcels(mappedRows);
+    alert(`ນຳເຂົ້າພັດສະດຸຈາກສາງໃຫຍ່ສຳເລັດ ${count} ລາຍການ!\nຂໍ້ມູນທັງໝົດໄດ້ຖືກສົ່ງເຂົ້າໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ" ແລ້ວ.`);
     setPreviewRows(null);
   };
 
   const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.parcelCode && !formData.shippingCode) {
-      alert('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ ຫຼື ລະຫັດຂົນສົ່ງ');
+    if (!formData.parcelCode.trim()) {
+      alert('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ (5. ລະຫັດເຄື່ອງ)');
       return;
     }
 
-    const pCode = (formData.parcelCode || '').trim().toUpperCase();
-    const sCode = (formData.shippingCode || '').trim().toUpperCase();
-    const finalParcelCode = pCode || sCode;
-    const finalShippingCode = sCode || pCode;
-
     addSingleParcel({
       date: formData.date,
-      customerName: formData.customerName || 'ລູກຄ້າ',
-      customerPhone: formData.customerPhone,
-      shippingCode: finalShippingCode,
-      parcelCode: finalParcelCode,
+      customerName: formData.customerName.trim() || 'ລູກຄ້າ',
+      customerPhone: formData.customerPhone.trim(),
+      shippingCode: formData.shippingCode.trim().toUpperCase(),
+      parcelCode: formData.parcelCode.trim().toUpperCase(),
       weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
       customerPrice: Number(formData.customerPrice) || 0,
       warehouseCost: Number(formData.warehouseCost) || 0,
-      volumeCbm: formData.volumeCbm || undefined,
+      volumeCbm: formData.volumeCbm ? String(formData.volumeCbm) : undefined,
       warehouseCostYuan: formData.warehouseCostYuan ? Number(formData.warehouseCostYuan) : undefined,
-      notes: formData.notes
+      notes: formData.notes.trim()
     });
 
     setFormData({
@@ -186,67 +197,65 @@ export const WarehouseInboundView: React.FC = () => {
       warehouseCostYuan: '',
       notes: ''
     });
+
     setShowAddModal(false);
+    alert('ເພີ່ມພັດສະດຸໃໝ່ສຳເລັດ! ຂໍ້ມູນຖືກສົ່ງເຂົ້າໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ" ແລ້ວ.');
   };
 
-  // Only parcels sent by central warehouse (exclude unmanifested ones that central warehouse never scanned)
-  const warehouseParcels = parcels.filter(p => !p.isUnmanifested && !p.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ'));
+  const handleExportBatchExcel = (summary: DailyShipmentSummary) => {
+    const exportData = summary.parcels.map((p, idx) => ({
+      'ລຳດັບ': idx + 1,
+      'ວັນທີ': p.date,
+      'ຊື່ລູກຄ້າ': p.customerName,
+      'ເບີໂທ': p.customerPhone,
+      'ລະຫັດຂົນສົ່ງ': p.shippingCode,
+      'ລະຫັດເຄື່ອງ': p.parcelCode,
+      'ນໍ້າໜັກ (kg)': p.weightKg || '',
+      'ລາຄາ (₭)': p.customerPrice,
+      'ຕົ້ນທຶນ (₭)': p.warehouseCost,
+      'ສະຖານະ': p.status === 'pending_arrival' ? 'ຍັງບໍ່ຮອດສາຂາ' : (p.status === 'in_branch' ? 'ຮອດສາຂາແລ້ວ' : 'ມອບລູກຄ້າແລ້ວ'),
+      'ໝາຍເຫດ': p.notes || ''
+    }));
 
-  // Filter parcels
-  const filteredParcels = warehouseParcels.filter(p => {
-    const matchesSearch = 
-      p.parcelCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.shippingCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.customerPhone.includes(searchTerm);
-    
-    if (statusFilter === 'all') return matchesSearch;
-    return matchesSearch && p.status === statusFilter;
-  });
-
-  const formatKip = (val: number) => {
-    return new Intl.NumberFormat('lo-LA').format(val) + ' ₭';
+    exportToExcel(exportData, `ສາງໃຫຍ່ສົ່ງມາ_${summary.date}`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Actions Bar */}
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Top Header & Actions */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold mb-2 border border-indigo-200">
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>ຂໍ້ 2: ເກັບກຳເຄື່ອງສາງໃຫຍ່ສະແກນມາ (11 ຖັນມາດຕະຖານ)</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            ລາຍການພັດສະດຸຈາກສາງໃຫຍ່ (Warehouse Inbound)
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <Truck className="w-7 h-7 text-indigo-600" />
+            <span>ສາງໃຫຍ່ສົ່ງມາ (Warehouse Inbound)</span>
           </h2>
           <p className="text-slate-500 text-xs sm:text-sm mt-1">
-            ຈັດລຽງ 11 ຖັນ: <strong>ວັນທີ, ຊື່ລູກຄ້າ, ເບີໂທ, ລະຫັດຂົນສົ່ງ, ລະຫັດເຄື່ອງ, ນໍ້າໜັກ, ລາຄາ, ຕົ້ນທຶນ, ບໍລິມາດ, ຕົ້ນທຶນສະກຸນເງິນຢວນ, ໝາຍເຫດ</strong>
+            ສະຫຼຸບການສົ່ງເຄື່ອງຈາກສາງໃຫຍ່ຕາມວັນທີ: ກວດສອບວັນທີໃດ ສາງໃຫຍ່ສະແກນມາຈຳນວນເທົ່າໃດ ແລະ ຄວາມຄືບໜ້າການຮັບເຂົ້າສາຂາ
           </p>
         </div>
 
-        {/* Action Buttons: Upload Excel, Template, Manual Add */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Download Template */}
+          {/* Download 11-column template */}
           <button
             onClick={downloadWarehouseExcelTemplate}
-            className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-2 transition shadow-xs"
-            title="ດາວໂຫລດຮູບແບບຟາຍ Excel 11 ຖັນ"
+            className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition"
+            title="ດາວໂຫລດໄຟລ໌ແບບຟອມ Excel ມາດຕະຖານ 11 ຖັນ"
           >
-            <Download className="w-4 h-4 text-emerald-600" />
-            <span>ດາວໂຫລດ Template Excel (11 ຖັນ)</span>
+            <Download className="w-4 h-4 text-slate-500" />
+            <span>ແບບຟອມ Excel (11 ຖັນ)</span>
           </button>
 
-          {/* Upload Excel Button */}
-          <label className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-indigo-600/30 transition">
+          {/* Import Excel */}
+          <label className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-indigo-600/30 cursor-pointer transition">
             <Upload className="w-4 h-4" />
-            <span>{isUploading ? 'ກຳລັງອ່ານ...' : 'ອັບໂຫລດ Excel ສາງໃຫຍ່'}</span>
+            <span>{isUploading ? 'ກຳລັງອ່ານໄຟລ໌...' : 'ນຳເຂົ້າ Excel'}</span>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx, .xls, .csv"
+              accept=".xlsx,.xls,.csv"
               onChange={handleFileUpload}
               className="hidden"
+              disabled={isUploading}
             />
           </label>
 
@@ -260,6 +269,351 @@ export const WarehouseInboundView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>ວັນທີສົ່ງມາທັງໝົດ</span>
+            <Calendar className="w-4 h-4 text-indigo-500" />
+          </div>
+          <div className="text-2xl font-black text-slate-900 mt-2 font-mono">
+            {dailySummaries.length} <span className="text-sm font-medium text-slate-500">ຮອບ/ວັນ</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">ແບ່ງຕາມວັນທີທີ່ສາງໃຫຍ່ສະແກນ</div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>ຈຳນວນເຄື່ອງສາງໃຫຍ່ສົ່ງ</span>
+            <Boxes className="w-4 h-4 text-blue-500" />
+          </div>
+          <div className="text-2xl font-black text-indigo-700 mt-2 font-mono">
+            {totalAllShipmentParcels} <span className="text-sm font-medium text-slate-500">ຊິ້ນ</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">ພັດສະດຸທັງໝົດທີ່ບັນທຶກມາ</div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>ຮັບເຂົ້າສາຂາແລ້ວ</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+          </div>
+          <div className="text-2xl font-black text-emerald-600 mt-2 font-mono">
+            {totalArrivedParcels} <span className="text-sm font-medium text-slate-500">ຊິ້ນ</span>
+          </div>
+          <div className="text-[11px] text-emerald-700 font-semibold mt-1">
+            {totalAllShipmentParcels > 0 ? Math.round((totalArrivedParcels / totalAllShipmentParcels) * 100) : 0}% ຂອງເຄື່ອງທັງໝົດ
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>ຍັງລໍຖ້າຮອດສາຂາ</span>
+            <Clock className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="text-2xl font-black text-amber-600 mt-2 font-mono">
+            {totalPendingParcels} <span className="text-sm font-medium text-slate-500">ຊິ້ນ</span>
+          </div>
+          <div className="text-[11px] text-amber-700 font-semibold mt-1">
+            ລໍຖ້າສະແກນຮັບເຂົ້າສາຂາ
+          </div>
+        </div>
+      </div>
+
+      {/* Info Notice: No duplication principle */}
+      <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 text-indigo-950 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-2.5">
+          <PackageCheck className="w-5 h-5 text-indigo-600 shrink-0" />
+          <div>
+            <strong className="font-bold">ການຈັດການຂໍ້ມູນແບບບໍ່ຊ້ຳກັນ:</strong> ເມື່ອນຳເຂົ້າ Excel ຫຼື ເພີ່ມພັດສະດຸໃໝ່, ລະຫັດທຸກລາຍການຈະຖືກເກັບໄວ້ທີ່ <strong>"ຕິດຕາມເຄື່ອງທັງໝົດ"</strong> ໂດຍອັດຕະໂນມັດ. ໜ້ານີ້ຈະສະແດງສະຫຼຸບວ່າ <strong>ແຕ່ລະວັນທີ ສາງໃຫຍ່ສະແກນມາຈຳນວນເທົ່າໃດ</strong>.
+          </div>
+        </div>
+        {onNavigateTab && (
+          <button
+            onClick={() => onNavigateTab('parcel_tracking')}
+            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 transition"
+          >
+            <span>ໄປໜ້າຕິດຕາມເຄື່ອງທັງໝົດ</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Search Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="ຄົ້ນຫາ ວັນທີ, ລະຫັດ, ຊື່ລູກຄ້າ..."
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+          />
+        </div>
+
+        <div className="text-xs text-slate-500 font-medium">
+          ພົບທັງໝົດ <strong>{filteredSummaries.length}</strong> ວັນທີສົ່ງເຄື່ອງ
+        </div>
+      </div>
+
+      {/* Main Daily Shipments Summary Table */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider">
+              <tr>
+                <th className="py-3.5 px-4">ວັນທີສາງໃຫຍ່ສົ່ງ</th>
+                <th className="py-3.5 px-4 text-center">ຈຳນວນສາງໃຫຍ່ສະແກນ</th>
+                <th className="py-3.5 px-4 text-center">ຮອດສາຂາແລ້ວ</th>
+                <th className="py-3.5 px-4 text-center">ຍັງບໍ່ຮອດ</th>
+                <th className="py-3.5 px-4 text-center">ມອບລູກຄ້າແລ້ວ</th>
+                <th className="py-3.5 px-4">ຄວາມຄືບໜ້າການຮັບເຂົ້າ</th>
+                <th className="py-3.5 px-4 text-right">ນໍ້າໜັກລວມ</th>
+                <th className="py-3.5 px-4 text-right">ຕົ້ນທຶນສາງລວມ</th>
+                <th className="py-3.5 px-4 text-right">ຍອດເກັບລູກຄ້າ</th>
+                <th className="py-3.5 px-4 text-center">ການດຳເນີນການ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredSummaries.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-16 text-center text-slate-400">
+                    <Truck className="w-10 h-10 mx-auto mb-2 text-slate-300 stroke-1" />
+                    <div className="font-bold text-slate-700 text-sm">ບໍ່ພົບຂໍ້ມູນການສົ່ງເຄື່ອງຈາກສາງໃຫຍ່</div>
+                    <p className="text-xs text-slate-400 mt-1">ທ່ານສາມາດກົດ "ນຳເຂົ້າ Excel" ຫຼື "+ ເພີ່ມເຄື່ອງເອງ" ຂ້າງເທິງ</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredSummaries.map((summary) => {
+                  const percentArrived = summary.totalParcels > 0 
+                    ? Math.round((summary.arrivedCount / summary.totalParcels) * 100) 
+                    : 0;
+
+                  return (
+                    <tr key={summary.date} className="hover:bg-slate-50/80 transition">
+                      {/* Date */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                            <Calendar className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="font-mono font-bold text-slate-900 text-sm">
+                              {formatDateDisplay(summary.date)}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">{summary.date}</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Total parcels sent by warehouse on this date */}
+                      <td className="py-4 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          <Boxes className="w-3.5 h-3.5" />
+                          <span>{summary.totalParcels} ຊິ້ນ</span>
+                        </span>
+                      </td>
+
+                      {/* Arrived at branch */}
+                      <td className="py-4 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                          <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                          <span>{summary.arrivedCount} ຊິ້ນ</span>
+                        </span>
+                      </td>
+
+                      {/* Pending arrival */}
+                      <td className="py-4 px-4 text-center">
+                        {summary.pendingCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span>{summary.pendingCount} ຊິ້ນ</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-xs">0</span>
+                        )}
+                      </td>
+
+                      {/* Delivered */}
+                      <td className="py-4 px-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span>{summary.deliveredCount} ຊິ້ນ</span>
+                        </span>
+                      </td>
+
+                      {/* Progress bar */}
+                      <td className="py-4 px-4 min-w-36">
+                        <div className="w-full">
+                          <div className="flex justify-between text-[11px] font-bold mb-1">
+                            <span className="text-slate-600">ຮອດສາຂາ</span>
+                            <span className="text-indigo-600 font-mono">{percentArrived}%</span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                percentArrived === 100 ? 'bg-emerald-500' : 'bg-indigo-600'
+                              }`}
+                              style={{ width: `${percentArrived}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Total weight */}
+                      <td className="py-4 px-4 font-mono font-semibold text-slate-700 text-right">
+                        {summary.totalWeight > 0 ? `${summary.totalWeight.toFixed(1)} kg` : '-'}
+                      </td>
+
+                      {/* Warehouse Cost */}
+                      <td className="py-4 px-4 font-mono font-bold text-amber-700 text-right">
+                        {formatKip(summary.totalWarehouseCost)}
+                      </td>
+
+                      {/* Customer Price */}
+                      <td className="py-4 px-4 font-mono font-bold text-slate-900 text-right">
+                        {formatKip(summary.totalCustomerPrice)}
+                      </td>
+
+                      {/* Action buttons */}
+                      <td className="py-4 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Quick view batch drawer */}
+                          <button
+                            onClick={() => setSelectedDateDetails(summary)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1 transition"
+                            title="ເບິ່ງລາຍການເຄື່ອງວັນທີນີ້"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>ລາຍລະອຽດ</span>
+                          </button>
+
+                          {/* Export batch to Excel */}
+                          <button
+                            onClick={() => handleExportBatchExcel(summary)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition"
+                            title="ດາວໂຫລດ Excel ຊຸດວັນທີນີ້"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Jump to Tracking view with filter */}
+                          {onNavigateTab && (
+                            <button
+                              onClick={() => onNavigateTab('parcel_tracking')}
+                              className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center gap-1 transition"
+                              title="ໄປກວດສອບໃນໜ້າຕິດຕາມເຄື່ອງ"
+                            >
+                              <span>ຕິດຕາມເຄື່ອງ</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal: View Details for a Specific Date */}
+      {selectedDateDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 flex flex-col max-h-[88vh]">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    ລາຍລະອຽດການສົ່ງວັນທີ {formatDateDisplay(selectedDateDetails.date)} ({selectedDateDetails.date})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    ສາງໃຫຍ່ສະແກນມາທັງໝົດ: <strong className="text-indigo-600 font-mono">{selectedDateDetails.totalParcels}</strong> ຊິ້ນ • ຮັບເຂົ້າສາຂາແລ້ວ: <strong className="text-emerald-600 font-mono">{selectedDateDetails.arrivedCount}</strong> ຊິ້ນ
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedDateDetails(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 my-3 border border-slate-200 rounded-2xl">
+              <table className="w-full text-left text-xs whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-600 sticky top-0 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-2.5 px-3">#</th>
+                    <th className="py-2.5 px-3">ລະຫັດເຄື່ອງ</th>
+                    <th className="py-2.5 px-3">ລະຫັດຂົນສົ່ງ</th>
+                    <th className="py-2.5 px-3">ຊື່ລູກຄ້າ</th>
+                    <th className="py-2.5 px-3">ເບີໂທ</th>
+                    <th className="py-2.5 px-3 text-right">ລາຄາລູກຄ້າ</th>
+                    <th className="py-2.5 px-3 text-right">ຕົ້ນທຶນສາງ</th>
+                    <th className="py-2.5 px-3">ສະຖານະ</th>
+                    <th className="py-2.5 px-3">ເວລາສະແກນ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {selectedDateDetails.parcels.map((p, idx) => (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 text-slate-400 font-mono">{idx + 1}</td>
+                      <td className="py-2 px-3 font-mono font-bold text-indigo-700">{p.parcelCode}</td>
+                      <td className="py-2 px-3 font-mono text-slate-700">{p.shippingCode}</td>
+                      <td className="py-2 px-3 font-semibold text-slate-900">{p.customerName}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{p.customerPhone}</td>
+                      <td className="py-2 px-3 font-mono font-bold text-slate-900 text-right">{formatKip(p.customerPrice)}</td>
+                      <td className="py-2 px-3 font-mono font-bold text-amber-700 text-right">{formatKip(p.warehouseCost)}</td>
+                      <td className="py-2 px-3">
+                        {p.status === 'pending_arrival' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            ຍັງບໍ່ຮອດສາຂາ
+                          </span>
+                        )}
+                        {p.status === 'in_branch' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            ຮອດສາຂາແລ້ວ
+                          </span>
+                        )}
+                        {p.status === 'delivered' && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ມອບແລ້ວ
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-slate-500">{p.arrivedAt || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
+              <button
+                onClick={() => handleExportBatchExcel(selectedDateDetails)}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export Excel ວັນທີນີ້</span>
+              </button>
+
+              <button
+                onClick={() => setSelectedDateDetails(null)}
+                className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition"
+              >
+                ປິດ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Excel Preview Modal when a file is uploaded */}
       {previewRows && (
@@ -349,7 +703,7 @@ export const WarehouseInboundView: React.FC = () => {
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <div>
                 <h3 className="font-bold text-slate-900 text-base">ເພີ່ມພັດສະດຸຈາກສາງໃຫຍ່ (ຄີຂໍ້ມູນ 11 ຫົວຂໍ້)</h3>
-                <p className="text-xs text-slate-500 mt-0.5">ປ້ອນຂໍ້ມູນຕາມລຳດັບມາດຕະຖານ 11 ຖັນ</p>
+                <p className="text-xs text-slate-500 mt-0.5">ປ້ອນຂໍ້ມູນຕາມລຳດັບມາດຕະຖານ 11 ຖັນ (ສົ່ງເຂົ້າໜ້າຕິດຕາມເຄື່ອງອັດຕະໂນມັດ)</p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -378,8 +732,9 @@ export const WarehouseInboundView: React.FC = () => {
                     type="text"
                     value={formData.customerName}
                     onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                    placeholder="ສົມສັກ ໄຊຍະວົງ"
+                    placeholder="ຊື່ລູກຄ້າ"
                     className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
+                    required
                   />
                 </div>
                 <div>
@@ -388,35 +743,39 @@ export const WarehouseInboundView: React.FC = () => {
                     type="text"
                     value={formData.customerPhone}
                     onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
-                    placeholder="02055112233"
+                    placeholder="0205xxxxxxx"
                     className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
                   />
                 </div>
               </div>
 
-              {/* 4. ລະຫັດຂົນສົ່ງ, 5. ລະຫັດເຄື່ອງ, 6. ນໍ້າໜັກ */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* 4. ລະຫັດຂົນສົ່ງ, 5. ລະຫັດເຄື່ອງ */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">4. ລະຫັດຂົນສົ່ງ</label>
                   <input
                     type="text"
                     value={formData.shippingCode}
                     onChange={(e) => setFormData({ ...formData, shippingCode: e.target.value })}
-                    placeholder="EXP-LA-102"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white uppercase font-mono"
+                    placeholder="EXP-LA-..."
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono uppercase"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">5. ລະຫັດເຄື່ອງ (Tracking)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">5. ລະຫັດເຄື່ອງ (Tracking Code)</label>
                   <input
                     type="text"
                     value={formData.parcelCode}
                     onChange={(e) => setFormData({ ...formData, parcelCode: e.target.value })}
-                    placeholder="PKG-88102"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white uppercase font-mono font-bold"
+                    placeholder="PKG-..."
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono uppercase font-bold text-indigo-700"
                     required
                   />
                 </div>
+              </div>
+
+              {/* 6. ນໍ້າໜັກ, 7. ລາຄາ, 8. ຕົ້ນທຶນ */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">6. ນໍ້າໜັກ (kg)</label>
                   <input
@@ -424,69 +783,56 @@ export const WarehouseInboundView: React.FC = () => {
                     step="0.1"
                     value={formData.weightKg}
                     onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-                    placeholder="1.5"
+                    placeholder="0.0"
                     className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
                   />
                 </div>
-              </div>
-
-              {/* 7. ລາຄາ, 8. ຕົ້ນທຶນ */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-emerald-800 mb-1">7. ລາຄາເກັບນໍາລູກຄ້າ (₭)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">7. ລາຄາ (₭)</label>
                   <input
                     type="number"
                     value={formData.customerPrice}
                     onChange={(e) => setFormData({ ...formData, customerPrice: e.target.value })}
                     placeholder="25000"
-                    className="w-full p-2.5 border border-emerald-200 rounded-xl text-xs bg-emerald-50/40 focus:bg-white font-mono font-bold text-emerald-900"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-slate-900"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-amber-800 mb-1">8. ຕົ້ນທຶນທີ່ສາງໃຫຍ່ຕັດ (₭)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">8. ຕົ້ນທຶນ (₭)</label>
                   <input
                     type="number"
                     value={formData.warehouseCost}
                     onChange={(e) => setFormData({ ...formData, warehouseCost: e.target.value })}
                     placeholder="15000"
-                    className="w-full p-2.5 border border-amber-200 rounded-xl text-xs bg-amber-50/40 focus:bg-white font-mono font-bold text-amber-900"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-amber-700"
                     required
                   />
                 </div>
               </div>
 
-              {/* 9. ບໍລິມາດ (ເປົ່າຫວ່າງໄດ້), 10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (ເປົ່າຫວ່າງໄດ້) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              {/* 9. ບໍລິມາດ, 10. ຕົ້ນທຶນຢວນ */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <Box className="w-3.5 h-3.5 text-slate-500" />
-                    <span>9. ບໍລິມາດ (m³) (ເປົ່າຫວ່າງໄດ້)</span>
-                  </label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">9. ບໍລິມາດ (m³ / cbm)</label>
                   <input
                     type="text"
                     value={formData.volumeCbm}
                     onChange={(e) => setFormData({ ...formData, volumeCbm: e.target.value })}
-                    placeholder="ເຊັ່ນ: 0.05"
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+                    placeholder="0.015"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                    <Coins className="w-3.5 h-3.5 text-purple-600" />
-                    <span>10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (¥) (ເປົ່າຫວ່າງໄດ້)</span>
-                  </label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (¥)</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="0.1"
                     value={formData.warehouseCostYuan}
                     onChange={(e) => setFormData({ ...formData, warehouseCostYuan: e.target.value })}
-                    placeholder="ເຊັ່ນ: 12.50"
-                    className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-purple-800"
+                    placeholder="5.5"
+                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono text-purple-700 font-bold"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    ກໍລະນີເຄື່ອງໃຫຍ່ສາງໃຫຍ່ໄລ່ທຶນເປັນເງິນຢວນ
-                  </span>
                 </div>
               </div>
 
@@ -518,467 +864,6 @@ export const WarehouseInboundView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Search and Filters Bar */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="ຄົ້ນຫາ ລະຫັດເຄື່ອງ, ລະຫັດຂົນສົ່ງ, ຊື່, ເບີໂທ..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-          />
-        </div>
-
-        {/* Status filter tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto">
-          <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ທັງໝົດ ({warehouseParcels.length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('pending_arrival')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'pending_arrival' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ຍັງບໍ່ຮອດສາຂາ ({warehouseParcels.filter(p => p.status === 'pending_arrival').length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('in_branch')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'in_branch' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ຮອດສາຂາແລ້ວ ({warehouseParcels.filter(p => p.status === 'in_branch').length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('delivered')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'delivered' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ມອບແລ້ວ ({warehouseParcels.filter(p => p.status === 'delivered').length})
-          </button>
-        </div>
-      </div>
-
-      {/* Main Parcels Table - arranged according to the 11 columns */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4">1. ວັນທີ</th>
-                <th className="py-3 px-4">2. ຊື່ລູກຄ້າ</th>
-                <th className="py-3 px-4">3. ເບີໂທ</th>
-                <th className="py-3 px-4">4. ລະຫັດຂົນສົ່ງ</th>
-                <th className="py-3 px-4">5. ລະຫັດເຄື່ອງ</th>
-                <th className="py-3 px-4">6. ນໍ້າໜັກ / 9. ບໍລິມາດ</th>
-                <th className="py-3 px-4">7. ລາຄາ (₭)</th>
-                <th className="py-3 px-4">8. ຕົ້ນທຶນ (₭ / ¥)</th>
-                <th className="py-3 px-4">ສ່ວນຕ່າງກໍາໄລ</th>
-                <th className="py-3 px-4">ສະຖານະ</th>
-                <th className="py-3 px-4">11. ໝາຍເຫດ</th>
-                <th className="py-3 px-4 text-center">ຈັດການ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredParcels.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="py-16 text-center">
-                    <div className="max-w-md mx-auto space-y-3">
-                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
-                        <FileSpreadsheet className="w-6 h-6" />
-                      </div>
-                      <div className="font-bold text-slate-800 text-sm">
-                        {parcels.length === 0 ? 'ຍັງບໍ່ມີພັດສະດຸໃນລະບົບ (ຂໍ້ມູນຖືກເຄຍແລ້ວ)' : 'ບໍ່ພົບລາຍການພັດສະດຸຕາມເງື່ອນໄຂ'}
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        ທ່ານສາມາດເລີ່ມຕົ້ນໂດຍການອັບໂຫລດຟາຍ Excel ຈາກສາງໃຫຍ່ ຫຼື ກົດປຸ່ມ "+ ເພີ່ມເຄື່ອງເອງ" ເພື່ອທົດລອງຄີຂໍ້ມູນຕາມ 11 ຖັນ
-                      </p>
-                      {parcels.length === 0 && (
-                        <div className="flex justify-center gap-2 pt-2">
-                          <button
-                            onClick={() => setShowAddModal(true)}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>+ ຄີຂໍ້ມູນເຄື່ອງດຽວນີ້</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredParcels.map((parcel) => {
-                  const profit = (parcel.customerPrice || 0) - (parcel.warehouseCost || 0);
-                  return (
-                    <tr key={parcel.id} className="hover:bg-slate-50/70 transition">
-                      {/* 1. ວັນທີ */}
-                      <td className="py-3 px-4 text-slate-600 font-mono">{formatDateDisplay(parcel.date)}</td>
-
-                      {/* 2. ຊື່ລູກຄ້າ */}
-                      <td className="py-3 px-4 font-semibold text-slate-800">
-                        {parcel.customerName}
-                      </td>
-
-                      {/* 3. ເບີໂທ */}
-                      <td className="py-3 px-4 font-mono text-slate-600">
-                        {parcel.customerPhone}
-                      </td>
-
-                      {/* 4. ລະຫັດຂົນສົ່ງ */}
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        {parcel.shippingCode}
-                      </td>
-
-                      {/* 5. ລະຫັດເຄື່ອງ */}
-                      <td className="py-3 px-4 font-mono font-bold text-indigo-600">
-                        {parcel.parcelCode}
-                      </td>
-
-                      {/* 6. ນໍ້າໜັກ / 9. ບໍລິມາດ */}
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5">
-                          {parcel.weightKg ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[11px]">
-                              <Scale className="w-3 h-3 text-slate-400" />
-                              <span>{parcel.weightKg} kg</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">-</span>
-                          )}
-                          {parcel.volumeCbm && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono text-[11px] border border-blue-200">
-                              <Box className="w-3 h-3" />
-                              <span>{parcel.volumeCbm} m³</span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 7. ລາຄາ */}
-                      <td className="py-3 px-4 font-mono text-slate-900 font-bold">
-                        {formatKip(parcel.customerPrice)}
-                      </td>
-
-                      {/* 8. ຕົ້ນທຶນ (₭ / ¥) */}
-                      <td className="py-3 px-4">
-                        <div className="font-mono text-amber-700 font-bold">
-                          {formatKip(parcel.warehouseCost)}
-                        </div>
-                        {parcel.warehouseCostYuan !== undefined && (
-                          <div className="text-[11px] font-mono font-bold text-purple-700 flex items-center gap-0.5 mt-0.5">
-                            <Coins className="w-3 h-3" />
-                            <span>¥{parcel.warehouseCostYuan} (ຢວນ)</span>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* ສ່ວນຕ່າງກໍາໄລ */}
-                      <td className="py-3 px-4 font-mono text-emerald-600 font-bold">
-                        +{formatKip(profit)}
-                      </td>
-
-                      {/* ສະຖານະ */}
-                      <td className="py-3 px-4">
-                        {parcel.status === 'pending_arrival' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <Clock className="w-3 h-3" />
-                            <span>ຍັງບໍ່ຮອດສາຂາ</span>
-                          </span>
-                        )}
-                        {parcel.status === 'in_branch' && (
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                            parcel.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ')
-                              ? 'bg-purple-50 text-purple-700 border-purple-300'
-                              : 'bg-blue-50 text-blue-700 border-blue-200'
-                          }`}>
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>{parcel.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ') ? 'ສາງໃຫຍ່ລືມສະແກນ (ຮອດສາຂາແລ້ວ)' : 'ຮອດສາຂາແລ້ວ'}</span>
-                          </span>
-                        )}
-                        {parcel.status === 'delivered' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>ມອບໃຫ້ລູກຄ້າແລ້ວ</span>
-                          </span>
-                        )}
-                        {parcel.status === 'unmanifested' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                            <AlertCircle className="w-3 h-3" />
-                            <span>ສາງໃຫຍ່ລືມສະແກນ</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* 11. ໝາຍເຫດ */}
-                      <td className="py-3 px-4 text-slate-500 max-w-xs truncate">
-                        {parcel.notes || '-'}
-                      </td>
-
-                      {/* ຈັດການ: ແກ້ໄຂ & ລຶບ */}
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => openEditModal(parcel)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
-                            title="ແກ້ໄຂຂໍ້ມູນພັດສະດຸ"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmParcel(parcel)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                            title="ລຶບລາຍການ"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Edit Parcel Modal (11 ຖັນຄົບຖ້ວນ) */}
-      {editingParcel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-base">
-                  ແກ້ໄຂຂໍ້ມູນພັດສະດຸ: {editingParcel.parcelCode}
-                </h3>
-              </div>
-              <button
-                onClick={() => setEditingParcel(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="space-y-4 pt-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* 1. ວັນທີ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">1. ວັນທີ</label>
-                  <input
-                    type="date"
-                    value={editFormData.date}
-                    onChange={(e) => setEditFormData({ ...editFormData, date: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    required
-                  />
-                </div>
-
-                {/* 2. ຊື່ລູກຄ້າ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">2. ຊື່ລູກຄ້າ</label>
-                  <input
-                    type="text"
-                    value={editFormData.customerName}
-                    onChange={(e) => setEditFormData({ ...editFormData, customerName: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
-                    required
-                  />
-                </div>
-
-                {/* 3. ເບີໂທ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">3. ເບີໂທ</label>
-                  <input
-                    type="text"
-                    value={editFormData.customerPhone}
-                    onChange={(e) => setEditFormData({ ...editFormData, customerPhone: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* 4. ລະຫັດຂົນສົ່ງ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">4. ລະຫັດຂົນສົ່ງ</label>
-                  <input
-                    type="text"
-                    value={editFormData.shippingCode}
-                    onChange={(e) => setEditFormData({ ...editFormData, shippingCode: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono uppercase"
-                    required
-                  />
-                </div>
-
-                {/* 5. ລະຫັດເຄື່ອງ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">5. ລະຫັດເຄື່ອງ</label>
-                  <input
-                    type="text"
-                    value={editFormData.parcelCode}
-                    onChange={(e) => setEditFormData({ ...editFormData, parcelCode: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono uppercase font-bold text-indigo-700"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {/* 6. ນໍ້າໜັກ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">6. ນໍ້າໜັກ (kg)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editFormData.weightKg}
-                    onChange={(e) => setEditFormData({ ...editFormData, weightKg: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
-                  />
-                </div>
-
-                {/* 9. ບໍລິມາດ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">9. ບໍລິມາດ (m³)</label>
-                  <input
-                    type="text"
-                    value={editFormData.volumeCbm}
-                    onChange={(e) => setEditFormData({ ...editFormData, volumeCbm: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
-                  />
-                </div>
-
-                {/* 7. ລາຄາ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">7. ລາຄາເກັບລູກຄ້າ (₭)</label>
-                  <input
-                    type="number"
-                    value={editFormData.customerPrice}
-                    onChange={(e) => setEditFormData({ ...editFormData, customerPrice: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-slate-900"
-                    required
-                  />
-                </div>
-
-                {/* 8. ຕົ້ນທຶນ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">8. ຕົ້ນທຶນສາງ (₭)</label>
-                  <input
-                    type="number"
-                    value={editFormData.warehouseCost}
-                    onChange={(e) => setEditFormData({ ...editFormData, warehouseCost: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-amber-700"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* 10. ຕົ້ນທຶນຢວນ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (¥)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editFormData.warehouseCostYuan}
-                    onChange={(e) => setEditFormData({ ...editFormData, warehouseCostYuan: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono text-purple-700"
-                  />
-                </div>
-
-                {/* ສະຖານະ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">ສະຖານະພັດສະດຸ</label>
-                  <select
-                    value={editFormData.status}
-                    onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as any })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-bold"
-                  >
-                    <option value="pending_arrival">ຍັງບໍ່ຮອດສາຂາ (Pending)</option>
-                    <option value="in_branch">ຮອດສາຂາແລ້ວ (In Branch)</option>
-                    <option value="delivered">ມອບໃຫ້ລູກຄ້າແລ້ວ (Delivered)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* 11. ໝາຍເຫດ */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">11. ໝາຍເຫດ</label>
-                <textarea
-                  rows={2}
-                  value={editFormData.notes}
-                  onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
-                />
-              </div>
-
-              <div className="pt-4 border-t border-slate-200 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingParcel(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  ຍົກເລີກ
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/30"
-                >
-                  ບັນທຶກການແກ້ໄຂ
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deleteConfirmParcel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-slate-900 text-base mb-1">
-              ຢືນຢັນການລຶບພັດສະດຸ?
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              ທ່ານຕ້ອງການລຶບພັດສະດຸລະຫັດ <strong className="font-mono text-slate-800">{deleteConfirmParcel.parcelCode}</strong> ({deleteConfirmParcel.customerName}) ແທ້ບໍ່?
-            </p>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => setDeleteConfirmParcel(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                ຍົກເລີກ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  deleteParcel(deleteConfirmParcel.id);
-                  setDeleteConfirmParcel(null);
-                }}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/30"
-              >
-                ລຶບລາຍການ
-              </button>
-            </div>
           </div>
         </div>
       )}

@@ -7,7 +7,8 @@ import {
   ArrivalScanLog, 
   PaymentMethod,
   DisputeClaim,
-  FinancialLedgerEntry
+  FinancialLedgerEntry,
+  isUserAdmin
 } from '../types';
 import { 
   INITIAL_USERS, 
@@ -134,10 +135,14 @@ interface AppContextType {
   updateCustomer: (id: string, updatedData: Partial<Customer>, updateLinkedParcels?: boolean) => void;
   deleteCustomer: (id: string) => void;
 
-  // Staff & User Management (ເພີ່ມພະນັກງານເອງ)
+  // Staff & User Management (ເພີ່ມພະນັກງານເອງ & ປ່ຽນລະຫັດຜ່ານ)
   addUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, data: Partial<User>) => void;
   deleteUser: (id: string) => void;
+  changePassword: (userId: string, newPassword: string) => boolean;
+
+  // Debt tracking: Mark bill as paid
+  markBillAsPaid: (billId: string, paymentMethod: 'cash' | 'transfer', proofUrl?: string, bank?: string, ref?: string) => void;
 
   // Reset & Clear
   clearAllData: () => void;
@@ -224,10 +229,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
       if (recovered.length > 0) {
         return recovered.map((u: User) => {
-          if (u.id === 'usr-1' || u.role === 'owner') {
+          if (u.id === 'usr-1' || u.role === 'owner' || u.username === 'larn' || u.username === 'admin') {
             return {
               ...u,
-              name: 'larn',
+              id: 'usr-1',
+              username: 'larn',
+              name: 'larn (Admin)',
+              role: 'owner',
+              password: u.password && u.password !== '123456' ? u.password : 'larn123',
+              branchName: 'ສາຂາ ໜອງບົວທອງ (Berlin)'
+            };
+          }
+          if (u.id === 'usr-2' || u.username === 'staff') {
+            return {
+              ...u,
+              id: 'usr-2',
+              username: 'staff',
+              name: 'staff (ພະນັກງານ)',
+              role: 'staff',
+              password: u.password && u.password !== '123456' ? u.password : '123',
               branchName: 'ສາຂາ ໜອງບົວທອງ (Berlin)'
             };
           }
@@ -246,17 +266,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(STORAGE_KEYS.USER);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.id === 'usr-1' || parsed.role === 'owner') {
-          return {
-            ...parsed,
-            name: 'larn',
-            branchName: 'ສາຂາ ໜອງບົວທອງ (Berlin)'
-          };
-        }
         return parsed;
       }
     } catch {}
-    return INITIAL_USERS[0]; // default logged in as Owner larn
+    return null; // Show Login screen!
   });
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -564,27 +577,115 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSoundEnabled(prev => !prev);
   };
 
-  const login = (username: string, _pin: string): boolean => {
-    const user = users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
-    if (user) {
-      setCurrentUser(user);
-      sound.playSuccess();
-      return true;
+  const login = (username: string, pin: string): boolean => {
+    const trimmedUser = username.trim().toLowerCase();
+    const trimmedPin = pin.trim();
+
+    // Match by direct username or by alias
+    let matchedUser = users.find(u => u.username.toLowerCase() === trimmedUser);
+    if (!matchedUser) {
+      if (trimmedUser === 'admin' || trimmedUser === 'owner' || trimmedUser === 'larn') {
+        matchedUser = users.find(u => u.role === 'owner' || u.role === 'admin' || u.id === 'usr-1');
+      } else if (trimmedUser === 'staff' || trimmedUser === 'somphone') {
+        matchedUser = users.find(u => u.role === 'staff');
+      }
     }
+
+    if (matchedUser) {
+      // Validate password: exact match with stored password
+      const expectedPassword = matchedUser.password || (matchedUser.role === 'owner' ? 'larn123' : '123');
+      if (trimmedPin === expectedPassword || (trimmedPin === 'larn123' && (matchedUser.role === 'owner' || matchedUser.role === 'admin'))) {
+        setCurrentUser(matchedUser);
+        try {
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(matchedUser));
+        } catch {}
+        sound.playSuccess();
+        return true;
+      }
+    }
+
     sound.playWarning();
     return false;
   };
 
+  const changePassword = (userId: string, newPassword: string): boolean => {
+    const trimmed = newPassword.trim();
+    if (!trimmed) return false;
+    setUsers(prev => {
+      const updated = prev.map(u => u.id === userId ? { ...u, password: trimmed } : u);
+      try {
+        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    if (currentUser?.id === userId) {
+      setCurrentUser(prev => prev ? { ...prev, password: trimmed } : null);
+      try {
+        const updatedCurrent = { ...currentUser, password: trimmed };
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updatedCurrent));
+      } catch {}
+    }
+    sound.playSuccess();
+    return true;
+  };
+
+  const markBillAsPaid = (billId: string, paymentMethod: 'cash' | 'transfer', proofUrl?: string, bank?: string, ref?: string) => {
+    const now = new Date();
+    const paidAt = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 8)}`;
+    
+    const targetBill = bills.find(b => b.id === billId);
+    if (targetBill && targetBill.paymentStatus === 'unpaid') {
+      addLedgerEntry({
+        type: 'income',
+        category: 'debt_settlement',
+        amount: targetBill.totalCustomerPrice,
+        description: `ຊຳລະໜີ້ໃບບິນ ${targetBill.id} (${targetBill.customerName}) ຜ່ານ ${paymentMethod === 'cash' ? 'ເງິນສົດ' : 'ໂອນ'}`,
+        created_by: currentUser?.name || 'ພະນັກງານ'
+      }).catch(err => console.warn('Supabase ledger debt error:', err));
+    }
+
+    setBills(prev => prev.map(b => {
+      if (b.id === billId) {
+        return {
+          ...b,
+          paymentStatus: 'paid',
+          paymentMethod,
+          paidAt,
+          paidMethod: paymentMethod,
+          paidTransferProofUrl: proofUrl || b.transferProofUrl,
+          transferBank: bank || b.transferBank,
+          transferRef: ref || b.transferRef
+        };
+      }
+      return b;
+    }));
+    sound.playSuccess();
+  };
+
   const logout = () => {
     setCurrentUser(null);
+    try {
+      localStorage.removeItem(STORAGE_KEYS.USER);
+    } catch {}
   };
 
   const switchUser = (userId: string) => {
     const target = users.find(u => u.id === userId);
-    if (target) {
-      setCurrentUser(target);
-      sound.playSuccess();
+    if (!target) return;
+
+    // Security check: staff cannot switch to admin or owner
+    const isCurrentStaff = !isUserAdmin(currentUser);
+    const isTargetAdmin = isUserAdmin(target);
+    if (isCurrentStaff && isTargetAdmin) {
+      sound.playWarning();
+      return;
     }
+
+    setCurrentUser(target);
+    try {
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(target));
+    } catch {}
+    sound.playSuccess();
   };
 
   // Add parcels from main warehouse (Excel upload or batch)
@@ -878,6 +979,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const totalCustomerPrice = checkoutItems.reduce((acc, p) => acc + (p.customerPrice || 0), 0);
     const profit = totalCustomerPrice - totalWarehouseCost;
 
+    const isDebt = data.paymentMethod === 'debt';
     const newBill: CheckoutBill = {
       id: billId,
       date: dateStr,
@@ -890,6 +992,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalCustomerPrice,
       profit,
       paymentMethod: data.paymentMethod,
+      paymentStatus: isDebt ? 'unpaid' : 'paid',
       cashReceived: data.cashReceived,
       cashChange: data.cashChange,
       transferBank: data.transferBank,
@@ -923,16 +1026,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     });
 
-    // Direct Supabase Live Ledger: Record income in Supabase table 'financial_ledger'
-    addLedgerEntry({
-      type: 'income',
-      category: 'checkout_revenue',
-      amount: totalCustomerPrice,
-      description: `ຈ່າຍເຄື່ອງໃບບິນ ${billId} (${data.customerName})`,
-      created_by: currentUser?.name || 'ພະນັກງານ'
-    }).catch(err => {
-      console.warn('Supabase ledger entry error:', err);
-    });
+    // Direct Supabase Live Ledger: Record income only if paid (debt will be recorded upon settlement)
+    if (!isDebt) {
+      addLedgerEntry({
+        type: 'income',
+        category: 'checkout_revenue',
+        amount: totalCustomerPrice,
+        description: `ຈ່າຍເຄື່ອງໃບບິນ ${billId} (${data.customerName})`,
+        created_by: currentUser?.name || 'ພະນັກງານ'
+      }).catch(err => {
+        console.warn('Supabase ledger entry error:', err);
+      });
+    }
 
     // Save Bill
     setBills(prev => [newBill, ...prev]);
@@ -1222,6 +1327,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addUser,
         updateUser,
         deleteUser,
+        changePassword,
+        markBillAsPaid,
         clearAllData,
         loadDemoData,
         resetToDefaultData

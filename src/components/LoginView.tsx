@@ -1,159 +1,142 @@
 import React, { useState } from 'react';
-import { Package, Lock, User, ShieldCheck, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, ShieldAlert, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export const LoginView: React.FC = () => {
-  const { users, login, switchUser } = useApp();
-  const [username, setUsername] = useState('admin');
-  const [pin, setPin] = useState('123456');
+  const { login } = useApp();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
+  const [showForgotTip, setShowForgotTip] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = login(username, pin);
+
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    if (!trimmedUser || !trimmedPass) {
+      setError('ກະລຸນາປ້ອນຊື່ຜູ້ໃຊ້ ແລະ ລະຫັດຜ່ານ');
+      return;
+    }
+
+    const success = login(trimmedUser, trimmedPass);
     if (!success) {
-      setError('ຊື່ຜູ້ໃຊ້ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ (ສາມາດໃຊ້ບັນຊີຕົວຢ່າງລຸ່ມນີ້)');
+      setError('ຊື່ຜູ້ໃຊ້ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ!');
     }
   };
 
-  const handleQuickLogin = (userId: string) => {
-    switchUser(userId);
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl grid md:grid-cols-5 bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-800/20">
-        {/* Left Side: Branding & Logistics Overview */}
-        <div className="md:col-span-2 bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-8 flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-          <div className="relative z-10">
-            <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center mb-6 shadow-inner border border-white/20">
-              <Package className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight mb-2">
-              ZTO Berlin
-            </h1>
-            <p className="text-indigo-100 text-sm leading-relaxed mb-6">
-              ລະບົບຈັດການພັດສະດຸສາຂາ ໜອງບົວທອງ (Berlin) — ຄວບຄຸມການຮັບ-ສົ່ງພັດສະດຸ, ສະແກນບາໂຄດ, ແລະ ອອກໃບບິນປ້ອງກັນພະນັກງານສໍ້ໂກງ.
-            </p>
-
-            <div className="space-y-3 text-xs text-indigo-100">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>ອັບໂຫລດ Excel ຈາກສາງໃຫຍ່ໄດ້ງ່າຍ</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>ສະແກນຮັບເຄື່ອງ ທຽບລະຫັດອັດຕະໂນມັດ</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>ກວດສອບເຄື່ອງບໍ່ເຫັນ & ສາງໃຫຍ່ລືມສະແກນ</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-                <span>ອອກໃບບິນ ພ້ອມແນບສະລິບໂອນປ້ອງກັນເງິນຫາຍ</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 pt-4 border-t border-indigo-500/40 text-[11px] text-indigo-200">
-            ສາຂາ ໜອງບົວທອງ (Berlin) • ນະຄອນຫຼວງວຽງຈັນ
-          </div>
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-gradient-to-b from-[#f3b5ea] via-[#c2d7fc] to-[#a8f2eb] relative select-none">
+      <div className="w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center px-6 py-10">
+        
+        {/* User Icon Circle - Outline Style matching attached image */}
+        <div className="w-20 h-20 rounded-full border-2 border-white/90 flex items-center justify-center mb-4 shadow-xs">
+          <UserIcon className="w-10 h-10 text-white stroke-[1.5]" />
         </div>
 
-        {/* Right Side: Login Form & Demo Selector */}
-        <div className="md:col-span-3 p-8 sm:p-10 flex flex-col justify-center">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">ເຂົ້າສູ່ລະບົບ (Login)</h2>
-            <p className="text-slate-500 text-sm mt-1">
-              ກະລຸນາປ້ອນຂໍ້ມູນບັນຊີພະນັກງານ ຫຼື ເຈົ້າຂອງສາຂາ
+        {/* Title: User Login */}
+        <h1 className="text-3xl sm:text-4xl font-light text-white tracking-wider mb-8 drop-shadow-xs text-center font-sans">
+          User Login
+        </h1>
+
+        {/* Error notification if wrong credentials */}
+        {error && (
+          <div className="w-full mb-5 p-3 rounded-xl bg-white/70 backdrop-blur-md border border-rose-300 text-rose-800 text-xs flex items-center gap-2 shadow-xs">
+            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Forgot Password Tip Modal/Alert */}
+        {showForgotTip && (
+          <div className="w-full mb-5 p-3.5 rounded-xl bg-white/85 backdrop-blur-md border border-indigo-200 text-slate-700 text-xs space-y-1 shadow-md">
+            <div className="font-bold text-indigo-900 flex items-center justify-between">
+              <span>ລືມລະຫັດຜ່ານ? (Forgot Password)</span>
+              <button 
+                type="button" 
+                onClick={() => setShowForgotTip(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              ກະລຸນາຕິດຕໍ່ <strong>ເຈົ້າຂອງຮ້ານ (larn)</strong> ເພື່ອກວດສອບ ຫຼື ປ່ຽນລະຫັດຜ່ານໃໝ່ໃຫ້ທ່ານ.
             </p>
           </div>
+        )}
 
-          {error && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                ຊື່ຜູ້ໃຊ້ (Username)
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
-                  placeholder="admin ຫຼື staff"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                ລະຫັດຜ່ານ (Password / PIN)
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                <input
-                  type="password"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
-                  placeholder="••••••"
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>ເຂົ້າສູ່ລະບົບ</span>
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
-          </form>
-
-          {/* Quick Demo Login Option */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-              ຫຼື ເລືອກເຂົ້າສູ່ລະບົບທົດສອບດ່ວນ (One-Click Demo):
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {users.map(u => (
-                <button
-                  key={u.id}
-                  onClick={() => handleQuickLogin(u.id)}
-                  type="button"
-                  className="p-3 text-left rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition flex items-center gap-3 group"
-                >
-                  <img
-                    src={u.avatar}
-                    alt={u.name}
-                    className="w-9 h-9 rounded-full object-cover border border-slate-200 group-hover:border-indigo-400"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-800 truncate group-hover:text-indigo-600">
-                      {u.name}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      {u.role === 'owner' ? '👑 ເຈົ້າຂອງຮ້ານ' : '📦 ພະນັກງານສາຂາ'}
-                    </div>
-                  </div>
-                </button>
-              ))}
+        {/* Form Container */}
+        <form onSubmit={handleSubmit} className="w-full space-y-6">
+          
+          {/* Email / Username Input with Underline Style */}
+          <div className="relative border-b-2 border-[#2b5880]/70 focus-within:border-[#1d4161] transition-colors pb-1">
+            <div className="flex items-center gap-3">
+              <Mail className="w-5 h-5 text-[#2b5880] shrink-0 stroke-[2]" />
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Email ID / Username"
+                className="w-full bg-transparent text-slate-800 placeholder-[#436e96]/70 text-sm focus:outline-none py-1 font-medium"
+                required
+                autoFocus
+              />
             </div>
           </div>
+
+          {/* Password Input with Underline Style */}
+          <div className="relative border-b-2 border-[#2b5880]/70 focus-within:border-[#1d4161] transition-colors pb-1">
+            <div className="flex items-center gap-3">
+              <Lock className="w-5 h-5 text-[#2b5880] shrink-0 stroke-[2]" />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                className="w-full bg-transparent text-slate-800 placeholder-[#436e96]/70 text-sm focus:outline-none py-1 font-medium tracking-wide"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Remember me & Forgot Password Row */}
+          <div className="flex items-center justify-between text-xs text-[#2b5880] pt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded text-[#2b5880] focus:ring-0 border-slate-400 bg-white/70 cursor-pointer"
+              />
+              <span className="font-medium text-[11px] sm:text-xs">Remember me</span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => setShowForgotTip(!showForgotTip)}
+              className="text-[11px] sm:text-xs italic hover:underline hover:text-[#1d4161] transition"
+            >
+              Forgot Password?
+            </button>
+          </div>
+
+          {/* Solid Rectangular LOGIN Button matching uploaded image */}
+          <div className="pt-2">
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-[#2d5e89] hover:bg-[#224b70] active:scale-[0.99] text-white font-bold tracking-widest text-sm shadow-md transition duration-150 cursor-pointer"
+            >
+              LOGIN
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-8 text-center text-[11px] text-[#2b5880]/80">
+          ZTO Berlin • ສາຂາ ໜອງບົວທອງ (Berlin)
         </div>
       </div>
     </div>

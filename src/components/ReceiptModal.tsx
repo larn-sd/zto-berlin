@@ -180,10 +180,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ bill, onClose }) => 
 
               {/* Payment Details */}
               <div className="pt-2 text-[11px] text-slate-600 space-y-1">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span>ວິທີການຊໍາລະ:</span>
-                  <span className="font-bold text-slate-900">
-                    {bill.paymentMethod === 'cash' ? '💵 ເງິນສົດ' : `📱 ໂອນເງິນ (${bill.transferBank || 'ທະນາຄານ'})`}
+                  <span className="font-bold">
+                    {bill.paymentMethod === 'cash' 
+                      ? '💵 ເງິນສົດ' 
+                      : bill.paymentMethod === 'debt' 
+                        ? (bill.paymentStatus === 'paid' 
+                            ? <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-black border border-emerald-200">✅ ຊຳລະໜີ້ແລ້ວ</span>
+                            : <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded font-black border border-amber-300">🚨 ຕິດໜີ້ (ຍັງບໍ່ຊຳລະ)</span>)
+                        : `📱 ໂອນເງິນ (${bill.transferBank || 'ທະນາຄານ'})`}
                   </span>
                 </div>
 

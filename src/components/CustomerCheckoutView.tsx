@@ -20,13 +20,14 @@ import {
   Calendar
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { WarehouseParcel, CheckoutBill, PaymentMethod } from '../types';
+import { WarehouseParcel, CheckoutBill, PaymentMethod, isUserAdmin } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { SAMPLE_TRANSFER_SLIP } from '../data/mockData';
 import { areSameCustomer } from '../utils/customerHelper';
 
 export const CustomerCheckoutView: React.FC = () => {
-  const { parcels, checkoutParcels, customers, scanArrivalCode } = useApp();
+  const { parcels, checkoutParcels, customers, scanArrivalCode, currentUser } = useApp();
+  const isAdmin = isUserAdmin(currentUser);
 
   const [scanInput, setScanInput] = useState('');
   const [batchCodesInput, setBatchCodesInput] = useState('');
@@ -242,6 +243,11 @@ export const CustomerCheckoutView: React.FC = () => {
         alert(`ເງິນສົດທີ່ຮັບ (${formatKip(numCashReceived)}) ບໍ່ພໍດີກັບຍອດລວມ (${formatKip(totalCustomerAmount)})`);
         return;
       }
+    } else if (paymentMethod === 'debt') {
+      if (!customerPhone.trim()) {
+        alert('ກະລຸນາປ້ອນເບີໂທລະສັບລູກຄ້າ ເພື່ອໃຊ້ໃນການບັນທຶກ ແລະ ຕິດຕາມໜີ້!');
+        return;
+      }
     }
 
     // Checkout execution with custom date support (e.g. if staff forgot to scan on the day)
@@ -444,7 +450,8 @@ export const CustomerCheckoutView: React.FC = () => {
                           <span className="font-mono text-xs text-slate-500">({item.shippingCode})</span>
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          ລູກຄ້າ: {item.customerName} • ຕົ້ນທຶນສາງ: {formatKip(item.warehouseCost)}
+                          <span>ລູກຄ້າ: {item.customerName}</span>
+                          {isAdmin && <span> • ຕົ້ນທຶນສາງ: {formatKip(item.warehouseCost)}</span>}
                         </div>
                       </div>
                     </div>
@@ -454,9 +461,11 @@ export const CustomerCheckoutView: React.FC = () => {
                         <div className="font-mono font-black text-slate-900 text-sm">
                           {formatKip(item.customerPrice)}
                         </div>
-                        <div className="text-[10px] text-emerald-600 font-semibold">
-                          ກໍາໄລ: +{formatKip((item.customerPrice || 0) - (item.warehouseCost || 0))}
-                        </div>
+                        {isAdmin && (
+                          <div className="text-[10px] text-emerald-600 font-semibold">
+                            ກໍາໄລ: +{formatKip((item.customerPrice || 0) - (item.warehouseCost || 0))}
+                          </div>
+                        )}
                       </div>
 
                       <button
@@ -567,7 +576,7 @@ export const CustomerCheckoutView: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 mb-2">
                 ວິທີການຊໍາລະເງິນ (Payment Method):
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('transfer')}
@@ -578,7 +587,7 @@ export const CustomerCheckoutView: React.FC = () => {
                   }`}
                 >
                   <CreditCard className="w-5 h-5 text-indigo-600" />
-                  <span>📱 ໂອນເງິນ / QR</span>
+                  <span>📱 ໂອນ / QR</span>
                 </button>
 
                 <button
@@ -591,7 +600,20 @@ export const CustomerCheckoutView: React.FC = () => {
                   }`}
                 >
                   <Banknote className="w-5 h-5 text-emerald-600" />
-                  <span>💵 ເງິນສົດ (Cash)</span>
+                  <span>💵 ເງິນສົດ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('debt')}
+                  className={`p-3 rounded-2xl border-2 flex flex-col items-center justify-center gap-1 text-xs font-bold transition ${
+                    paymentMethod === 'debt'
+                      ? 'border-amber-500 bg-amber-50 text-amber-800 shadow-xs'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  <FileText className="w-5 h-5 text-amber-600" />
+                  <span>📋 ຕິດໜີ້</span>
                 </button>
               </div>
             </div>
@@ -717,19 +739,50 @@ export const CustomerCheckoutView: React.FC = () => {
               </div>
             )}
 
+            {/* If Debt (ຕິດໜີ້): Customer Due Date & Debt Notes */}
+            {paymentMethod === 'debt' && (
+              <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-300 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                  <span className="text-base">📋</span>
+                  <span>ສະຖານະ: ຕິດໜີ້ (Customer Debt Tracking)</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  * ລູກຄ້າມາຮັບເຄື່ອງກ່ອນ ແຕ່ຍັງບໍ່ທັນໄດ້ຈ່າຍເງິນ. ລະບົບຈະບັນທຶກໃບບິນນີ້ເປັນ <strong>"ຕິດໜີ້ (ຍັງບໍ່ຊຳລະ)"</strong> ເພື່ອໃຫ້ທ່ານສາມາດຕິດຕາມໜີ້ ແລະ ກົດຕັດໜີ້ເມື່ອລູກຄ້ານຳເງິນມາຈ່າຍ.
+                </p>
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-950 mb-1">
+                    ກຳນົດວັນທີນັດຈ່າຍ / ໝາຍເຫດການຕິດໜີ້:
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="ເຊັ່ນ: ນັດຈ່າຍວັນທີ 25/10/2026, ລູກຄ້າຂໍຈ່າຍທ້າຍເດືອນ"
+                    className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Checkout Price Summary Box */}
             <div className="pt-4 border-t border-slate-200 space-y-2 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>ຕົ້ນທຶນສາງໃຫຍ່ (ຈ່າຍສາງ):</span>
-                <span className="font-mono">{formatKip(totalWarehouseCost)}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>ກໍາໄລສາຂາ:</span>
-                <span className="font-mono text-emerald-600 font-bold">+{formatKip(totalProfit)}</span>
-              </div>
+              {isAdmin && (
+                <>
+                  <div className="flex justify-between text-slate-600">
+                    <span>ຕົ້ນທຶນສາງໃຫຍ່ (ຈ່າຍສາງ):</span>
+                    <span className="font-mono">{formatKip(totalWarehouseCost)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>ກໍາໄລສາຂາ:</span>
+                    <span className="font-mono text-emerald-600 font-bold">+{formatKip(totalProfit)}</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between text-base font-black text-slate-900 pt-2 border-t border-slate-100">
-                <span>ຍອດເກັບລູກຄ້າຕົວຈິງ:</span>
-                <span className="text-emerald-700 text-lg">{formatKip(totalCustomerAmount)}</span>
+                <span>{paymentMethod === 'debt' ? 'ຍອດຕິດໜີ້ຄ້າງຊຳລະ:' : 'ຍອດເກັບລູກຄ້າຕົວຈິງ:'}</span>
+                <span className={`text-lg ${paymentMethod === 'debt' ? 'text-amber-700 font-black' : 'text-emerald-700 font-black'}`}>
+                  {formatKip(totalCustomerAmount)}
+                </span>
               </div>
             </div>
 
@@ -739,12 +792,18 @@ export const CustomerCheckoutView: React.FC = () => {
               disabled={cartItems.length === 0}
               className={`w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg transition active:scale-[0.99] ${
                 cartItems.length > 0
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
+                  ? paymentMethod === 'debt'
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/30'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <Receipt className="w-5 h-5" />
-              <span>ຢືນຢັນການຈ່າຍເຄື່ອງ & ອອກໃບບິນ</span>
+              <span>
+                {paymentMethod === 'debt' 
+                  ? `✓ ຢືນຢັນຈ່າຍເຄື່ອງ (ຕິດໜີ້ ${formatKip(totalCustomerAmount)})` 
+                  : '✓ ຢືນຢັນການຈ່າຍເຄື່ອງ & ອອກໃບບິນ'}
+              </span>
             </button>
           </div>
         </div>

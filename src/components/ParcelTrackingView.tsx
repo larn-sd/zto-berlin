@@ -10,29 +10,31 @@ import {
   Filter, 
   Scale, 
   Box, 
-  Coins, 
-  Tag, 
-  User, 
-  Phone,
-  ScanLine,
+  Calendar,
   ArrowRight,
   Edit3,
   Trash2,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { formatDateDisplay, exportToExcel } from '../utils/excel';
-import { WarehouseParcel, TabKey } from '../types';
+import { WarehouseParcel, TabKey, isUserAdmin } from '../types';
 
 interface ParcelTrackingViewProps {
   onNavigateTab?: (tab: TabKey) => void;
 }
 
 export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNavigateTab }) => {
-  const { parcels, updateParcel, deleteParcel } = useApp();
+  const { parcels, updateParcel, deleteParcel, currentUser } = useApp();
+  const isAdmin = isUserAdmin(currentUser);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending_arrival' | 'in_branch' | 'unmanifested' | 'delivered'>('all');
+  
+  // Date filtering state
+  const [dateFilterPreset, setDateFilterPreset] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [customFilterDate, setCustomFilterDate] = useState<string>('');
 
   // Edit parcel state
   const [editingParcel, setEditingParcel] = useState<WarehouseParcel | null>(null);
@@ -84,15 +86,21 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
       parcelCode: (editFormData.parcelCode || '').trim().toUpperCase(),
       weightKg: editFormData.weightKg ? Number(editFormData.weightKg) : undefined,
       customerPrice: Number(editFormData.customerPrice) || 0,
-      warehouseCost: Number(editFormData.warehouseCost) || 0,
+      // If staff edits, keep original warehouse cost so they cannot alter or see it
+      warehouseCost: isAdmin ? (Number(editFormData.warehouseCost) || 0) : (editingParcel.warehouseCost || 0),
       volumeCbm: editFormData.volumeCbm ? String(editFormData.volumeCbm) : undefined,
-      warehouseCostYuan: editFormData.warehouseCostYuan ? Number(editFormData.warehouseCostYuan) : undefined,
+      warehouseCostYuan: isAdmin && editFormData.warehouseCostYuan ? Number(editFormData.warehouseCostYuan) : editingParcel.warehouseCostYuan,
       notes: editFormData.notes.trim(),
       status: editFormData.status
     });
 
     setEditingParcel(null);
   };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const sevenDaysAgoStr = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+  const thisMonthStr = todayStr.substring(0, 7);
 
   const pendingCount = parcels.filter(p => p.status === 'pending_arrival').length;
   const inBranchCount = parcels.filter(p => p.status === 'in_branch').length;
@@ -110,6 +118,14 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
     if (statusFilter === 'delivered' && p.status !== 'delivered') return false;
     if (statusFilter === 'unmanifested' && !(p.isUnmanifested || p.status === 'unmanifested' || p.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ'))) return false;
 
+    // Date filter
+    const pDate = p.date || (p.importedAt ? p.importedAt.split(' ')[0] : '');
+    if (dateFilterPreset === 'today' && pDate !== todayStr) return false;
+    if (dateFilterPreset === 'yesterday' && pDate !== yesterdayStr) return false;
+    if (dateFilterPreset === 'week' && (!pDate || pDate < sevenDaysAgoStr)) return false;
+    if (dateFilterPreset === 'month' && (!pDate || !pDate.startsWith(thisMonthStr))) return false;
+    if (dateFilterPreset === 'custom' && customFilterDate && pDate !== customFilterDate) return false;
+
     // Search filter
     if (!searchTerm.trim()) return true;
     const term = searchTerm.toLowerCase().trim();
@@ -123,72 +139,90 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
   });
 
   const handleExportExcel = () => {
-    const exportData = filteredParcels.map((p, idx) => ({
-      'ລຳດັບ': idx + 1,
-      'ວັນທີ': p.date,
-      'ຊື່ລູກຄ້າ': p.customerName,
-      'ເບີໂທ': p.customerPhone,
-      'ລະຫັດຂົນສົ່ງ': p.shippingCode,
-      'ລະຫັດເຄື່ອງ': p.parcelCode,
-      'ນໍ້າໜັກ (kg)': p.weightKg || '',
-      'ລາຄາເກັບລູກຄ້າ (₭)': p.customerPrice,
-      'ຕົ້ນທຶນສາງ (₭)': p.warehouseCost,
-      'ສະຖານະ': p.status === 'pending_arrival' ? 'ຍັງບໍ່ຮອດສາຂາ' :
-                p.status === 'in_branch' ? (p.isUnmanifested ? 'ສາງໃຫຍ່ລືມສະແກນ (ຮອດສາຂາແລ້ວ)' : 'ຮອດສາຂາແລ້ວ') :
-                p.status === 'delivered' ? 'ມອບໃຫ້ລູກຄ້າແລ້ວ' : 'ສາງໃຫຍ່ລືມສະແກນ',
-      'ເວລາຮອດສາຂາ': p.arrivedAt || '',
-      'ພະນັກງານສະແກນ': p.arrivedByStaff || '',
-      'ໝາຍເຫດ': p.notes || ''
-    }));
+    const exportData = filteredParcels.map((p, idx) => {
+      const base: Record<string, any> = {
+        'ລຳດັບ': idx + 1,
+        'ວັນທີ': p.date,
+        'ຊື່ລູກຄ້າ': p.customerName,
+        'ເບີໂທ': p.customerPhone,
+        'ລະຫັດຂົນສົ່ງ': p.shippingCode,
+        'ລະຫັດເຄື່ອງ': p.parcelCode,
+        'ນໍ້າໜັກ (kg)': p.weightKg || '',
+        'ລາຄາເກັບລູກຄ້າ (₭)': p.customerPrice,
+      };
 
-    exportToExcel(exportData, `ZTO_Berlin_Parcel_Tracking_${new Date().toISOString().split('T')[0]}`);
+      // Only include warehouse cost for Admin
+      if (isAdmin) {
+        base['ຕົ້ນທຶນສາງ (₭)'] = p.warehouseCost;
+      }
+
+      base['ສະຖານະ'] = p.status === 'pending_arrival' ? 'ຍັງບໍ່ຮອດສາຂາ' :
+        p.status === 'in_branch' ? (p.isUnmanifested ? 'ສາງໃຫຍ່ລືມສະແກນ (ຮອດສາຂາແລ້ວ)' : 'ຮອດສາຂາແລ້ວ') :
+        p.status === 'delivered' ? 'ມອບໃຫ້ລູກຄ້າແລ້ວ' : 'ສາງໃຫຍ່ລືມສະແກນ';
+      base['ເວລາຮອດສາຂາ'] = p.arrivedAt || '';
+      base['ພະນັກງານສະແກນ'] = p.arrivedByStaff || '';
+      base['ໝາຍເຫດ'] = p.notes || '';
+
+      return base;
+    });
+
+    exportToExcel(exportData, `ຕິດຕາມພັດສະດຸທັງໝົດ_${dateFilterPreset}`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Top Banner and Navigation Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold mb-2 border border-indigo-200">
-            <Boxes className="w-3.5 h-3.5" />
-            <span>ໜ້າຕິດຕາມເຄື່ອງ & ສະຖານະສາງສາຂາທັງໝົດ</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            ຕິດຕາມເຄື່ອງທັງໝົດ (All Parcels Tracking & Inventory)
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <Boxes className="w-7 h-7 text-indigo-600" />
+            <span>ຕິດຕາມເຄື່ອງທັງໝົດ (All Parcels Live Tracking)</span>
           </h2>
           <p className="text-slate-500 text-xs sm:text-sm mt-1">
-            ລາຍການພັດສະດຸທັງໝົດໃນລະບົບ: ກວດສອບສະຖານະຈາກ <strong>"ຍັງບໍ່ຮອດສາຂາ"</strong> ເປັນ <strong>"ຮອດສາຂາແລ້ວ"</strong>, ເຄື່ອງທີ່ <strong>"ສາງໃຫຍ່ລືມສະແກນ"</strong> ແລະ <strong>"ມອບໃຫ້ລູກຄ້າແລ້ວ"</strong>
+            ສູນລວມພັດສະດຸທັງໝົດ: ກວດສອບສະຖານະ, ຄົ້ນຫາຕາມລະຫັດ, ຊື່, ເບີໂທ ແລະ <strong>ກັ່ນຕອງຕາມວັນທີ</strong>
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        <div className="flex items-center gap-2">
+          {onNavigateTab && (
+            <button
+              onClick={() => onNavigateTab('branch_scan')}
+              className="px-3.5 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center gap-1.5 transition"
+            >
+              <span>+ ສະແກນຮັບເຂົ້າສາຂາ</span>
+            </button>
+          )}
+
           <button
             onClick={handleExportExcel}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
           >
             <Download className="w-4 h-4" />
-            <span>Export ລາຍການ (Excel)</span>
+            <span>Export Excel</span>
           </button>
         </div>
       </div>
 
-      {/* Overview Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div 
           onClick={() => setStatusFilter('all')}
           className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
             statusFilter === 'all' ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="text-xs font-bold opacity-80">ພັດສະດຸທັງໝົດ</div>
+          <div className="text-xs font-bold opacity-80 flex items-center justify-between">
+            <span>ພັດສະດຸທັງໝົດ</span>
+            <Boxes className="w-4 h-4 opacity-70" />
+          </div>
           <div className="text-2xl font-black mt-1">{parcels.length}</div>
-          <div className="text-[11px] opacity-70 mt-0.5">ລວມທຸກສະຖານະ</div>
+          <div className="text-[11px] opacity-70 mt-0.5">ລາຍການໃນລະບົບ</div>
         </div>
 
         <div 
           onClick={() => setStatusFilter('pending_arrival')}
           className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
-            statusFilter === 'pending_arrival' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-white border-slate-200 hover:border-amber-300'
+            statusFilter === 'pending_arrival' ? 'bg-amber-600 text-white border-amber-600 shadow-md' : 'bg-white border-slate-200 hover:border-amber-300'
           }`}
         >
           <div className="text-xs font-bold opacity-80 flex items-center gap-1">
@@ -196,7 +230,7 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
             <span>1. ຍັງບໍ່ຮອດສາຂາ</span>
           </div>
           <div className="text-2xl font-black mt-1">{pendingCount}</div>
-          <div className="text-[11px] opacity-70 mt-0.5">ສາງໃຫຍ່ສົ່ງມາ ລໍຖ້າສະແກນ</div>
+          <div className="text-[11px] opacity-70 mt-0.5">ສາງໃຫຍ່ສະແກນມາ</div>
         </div>
 
         <div 
@@ -214,20 +248,6 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
         </div>
 
         <div 
-          onClick={() => setStatusFilter('unmanifested')}
-          className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
-            statusFilter === 'unmanifested' ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'bg-white border-slate-200 hover:border-purple-300'
-          }`}
-        >
-          <div className="text-xs font-bold opacity-80 flex items-center gap-1">
-            <AlertCircle className="w-3.5 h-3.5" />
-            <span>ສາງໃຫຍ່ລືມສະແກນ</span>
-          </div>
-          <div className="text-2xl font-black mt-1">{unmanifestedCount}</div>
-          <div className="text-[11px] opacity-70 mt-0.5">ສາຂາຮັບເຂົ້າອັດຕະໂນມັດ</div>
-        </div>
-
-        <div 
           onClick={() => setStatusFilter('delivered')}
           className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
             statusFilter === 'delivered' ? 'bg-emerald-600 text-white border-emerald-600 shadow-md' : 'bg-white border-slate-200 hover:border-emerald-300'
@@ -242,61 +262,156 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
         </div>
       </div>
 
-      {/* Search and Filters Bar */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-96">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="ຄົ້ນຫາ ລະຫັດເຄື່ອງ, ລະຫັດຂົນສົ່ງ, ຊື່, ເບີໂທ..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-          />
+      {/* Date Filter Bar & Status Tabs (User requested date filter) */}
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+        {/* Date Filter Controls */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-indigo-600" />
+            <span className="text-xs font-bold text-slate-800">ກັ່ນຕອງຕາມວັນທີ (Date Filter):</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <button
+              onClick={() => { setDateFilterPreset('all'); setCustomFilterDate(''); }}
+              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                dateFilterPreset === 'all' 
+                  ? 'bg-indigo-600 text-white shadow-2xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ທຸກວັນທີ
+            </button>
+            <button
+              onClick={() => { setDateFilterPreset('today'); setCustomFilterDate(''); }}
+              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                dateFilterPreset === 'today' 
+                  ? 'bg-indigo-600 text-white shadow-2xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ມື້ນີ້ ({formatDateDisplay(todayStr)})
+            </button>
+            <button
+              onClick={() => { setDateFilterPreset('yesterday'); setCustomFilterDate(''); }}
+              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                dateFilterPreset === 'yesterday' 
+                  ? 'bg-indigo-600 text-white shadow-2xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ມື້ວານ
+            </button>
+            <button
+              onClick={() => { setDateFilterPreset('week'); setCustomFilterDate(''); }}
+              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                dateFilterPreset === 'week' 
+                  ? 'bg-indigo-600 text-white shadow-2xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              7 ມື້ຫຼ້າສຸດ
+            </button>
+            <button
+              onClick={() => { setDateFilterPreset('month'); setCustomFilterDate(''); }}
+              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                dateFilterPreset === 'month' 
+                  ? 'bg-indigo-600 text-white shadow-2xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ເດືອນນີ້
+            </button>
+
+            {/* Custom Date Input */}
+            <div className="flex items-center gap-1 pl-2 sm:border-l border-slate-200">
+              <input
+                type="date"
+                value={customFilterDate}
+                onChange={(e) => {
+                  setCustomFilterDate(e.target.value);
+                  setDateFilterPreset(e.target.value ? 'custom' : 'all');
+                }}
+                className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {customFilterDate && (
+                <button
+                  onClick={() => { setCustomFilterDate(''); setDateFilterPreset('all'); }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                  title="ລ້າງວັນທີ"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Status filter tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto">
-          <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ທັງໝົດ ({parcels.length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('pending_arrival')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'pending_arrival' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ຍັງບໍ່ຮອດສາຂາ ({pendingCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('in_branch')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'in_branch' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ຮອດສາຂາແລ້ວ ({inBranchCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('unmanifested')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'unmanifested' ? 'bg-purple-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ສາງໃຫຍ່ລືມ ({unmanifestedCount})
-          </button>
-          <button
-            onClick={() => setStatusFilter('delivered')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'delivered' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            ມອບແລ້ວ ({deliveredCount})
-          </button>
+        {/* Search and Status Tabs */}
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+          <div className="relative w-full sm:w-96">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="ຄົ້ນຫາ ລະຫັດເຄື່ອງ, ລະຫັດຂົນສົ່ງ, ຊື່, ເບີໂທ..."
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+            />
+          </div>
+
+          {/* Status filter tabs */}
+          <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === 'all' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              ທັງໝົດ
+            </button>
+            <button
+              onClick={() => setStatusFilter('pending_arrival')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === 'pending_arrival' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              ຍັງບໍ່ຮອດສາຂາ
+            </button>
+            <button
+              onClick={() => setStatusFilter('in_branch')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === 'in_branch' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              ຮອດສາຂາແລ້ວ
+            </button>
+            <button
+              onClick={() => setStatusFilter('unmanifested')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === 'unmanifested' ? 'bg-purple-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              ສາງໃຫຍ່ລືມ
+            </button>
+            <button
+              onClick={() => setStatusFilter('delivered')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                statusFilter === 'delivered' ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              ມອບແລ້ວ
+            </button>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-slate-500 flex items-center justify-between">
+          <span>ພົບທັງໝົດ <strong>{filteredParcels.length}</strong> ລາຍການພັດສະດຸ</span>
+          {!isAdmin && (
+            <span className="text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 font-medium">
+              ໂໝດພະນັກງານ: ເຊື່ອງລາຄາຕົ້ນທຶນ ແລະ ກຳໄລ
+            </span>
+          )}
         </div>
       </div>
 
@@ -313,7 +428,7 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                 <th className="py-3 px-4">ລະຫັດເຄື່ອງ</th>
                 <th className="py-3 px-4">ນໍ້າໜັກ / ບໍລິມາດ</th>
                 <th className="py-3 px-4">ລາຄາລູກຄ້າ</th>
-                <th className="py-3 px-4">ຕົ້ນທຶນສາງ</th>
+                {isAdmin && <th className="py-3 px-4">ຕົ້ນທຶນສາງ</th>}
                 <th className="py-3 px-4">ສະຖານະຕິດຕາມ</th>
                 <th className="py-3 px-4">ເວລາສະແກນ / ພະນັກງານ</th>
                 <th className="py-3 px-4">ໝາຍເຫດ</th>
@@ -323,10 +438,10 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
             <tbody className="divide-y divide-slate-100">
               {filteredParcels.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-16 text-center text-slate-400">
+                  <td colSpan={isAdmin ? 12 : 11} className="py-16 text-center text-slate-400">
                     <Boxes className="w-10 h-10 mx-auto mb-2 text-slate-300 stroke-1" />
                     <div className="font-bold text-slate-700 text-sm">ບໍ່ພົບລາຍການພັດສະດຸ</div>
-                    <p className="text-xs text-slate-400 mt-1">ລອງຄົ້ນຫາດ້ວຍຄຳສັບອື່ນ ຫຼື ປ່ຽນແທັບສະຖານະ</p>
+                    <p className="text-xs text-slate-400 mt-1">ລອງຄົ້ນຫາດ້ວຍຄຳສັບອື່ນ ຫຼື ປັບປ່ຽນຕົວກັ່ນຕອງວັນທີ/ສະຖານະ</p>
                   </td>
                 </tr>
               ) : (
@@ -358,7 +473,11 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                       </td>
 
                       <td className="py-3 px-4 font-mono font-bold text-slate-900">{formatKip(parcel.customerPrice)}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-amber-700">{formatKip(parcel.warehouseCost)}</td>
+                      
+                      {/* Cost is ONLY visible to Admin */}
+                      {isAdmin && (
+                        <td className="py-3 px-4 font-mono font-bold text-amber-700">{formatKip(parcel.warehouseCost)}</td>
+                      )}
 
                       {/* Live Tracking Status Badge */}
                       <td className="py-3 px-4">
@@ -424,13 +543,15 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                               <ArrowRight className="w-3 h-3" />
                             </button>
                           )}
-                          <button
-                            onClick={() => setDeleteConfirmParcel(parcel)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                            title="ລຶບລາຍການ"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDeleteConfirmParcel(parcel)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                              title="ລຶບລາຍການ (Admin)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -525,7 +646,7 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
                 {/* 6. ນໍ້າໜັກ */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">6. ນໍ້າໜັກ (kg)</label>
@@ -561,31 +682,37 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                   />
                 </div>
 
-                {/* 8. ຕົ້ນທຶນ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">8. ຕົ້ນທຶນສາງ (₭)</label>
-                  <input
-                    type="number"
-                    value={editFormData.warehouseCost}
-                    onChange={(e) => setEditFormData({ ...editFormData, warehouseCost: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-amber-700"
-                    required
-                  />
-                </div>
+                {/* 8. ຕົ້ນທຶນ (ADMIN ONLY) */}
+                {isAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">8. ຕົ້ນທຶນສາງ (₭)</label>
+                    <input
+                      type="number"
+                      value={editFormData.warehouseCost}
+                      onChange={(e) => setEditFormData({ ...editFormData, warehouseCost: e.target.value })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono font-bold text-amber-700"
+                      required
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* 10. ຕົ້ນທຶນຢວນ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (¥)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editFormData.warehouseCostYuan}
-                    onChange={(e) => setEditFormData({ ...editFormData, warehouseCostYuan: e.target.value })}
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono text-purple-700"
-                  />
-                </div>
+                {/* 10. ຕົ້ນທຶນຢວນ (ADMIN ONLY) */}
+                {isAdmin ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">10. ຕົ້ນທຶນສະກຸນເງິນຢວນ (¥)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editFormData.warehouseCostYuan}
+                      onChange={(e) => setEditFormData({ ...editFormData, warehouseCostYuan: e.target.value })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono text-purple-700"
+                    />
+                  </div>
+                ) : (
+                  <div></div>
+                )}
 
                 {/* ສະຖານະ */}
                 <div>
@@ -609,6 +736,7 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                   rows={2}
                   value={editFormData.notes}
                   onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                  placeholder="ໝາຍເຫດ..."
                   className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
                 />
               </div>
@@ -633,36 +761,34 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirm Modal */}
       {deleteConfirmParcel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-slate-900 text-base mb-1">
-              ຢືນຢັນການລຶບພັດສະດຸ?
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              ທ່ານຕ້ອງການລຶບພັດສະດຸລະຫັດ <strong className="font-mono text-slate-800">{deleteConfirmParcel.parcelCode}</strong> ({deleteConfirmParcel.customerName}) ແທ້ບໍ່?
-            </p>
-            <div className="flex items-center justify-center gap-2">
+            <div>
+              <h3 className="font-bold text-slate-900 text-base">ຢືນຢັນການລຶບພັດສະດຸ?</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                ຕ້ອງການລຶບພັດສະດຸລະຫັດ <strong className="font-mono text-indigo-700">{deleteConfirmParcel.parcelCode}</strong> ອອກຈາກລະບົບແທ້ບໍ່?
+              </p>
+            </div>
+            <div className="flex gap-2">
               <button
-                type="button"
                 onClick={() => setDeleteConfirmParcel(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                className="flex-1 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50"
               >
                 ຍົກເລີກ
               </button>
               <button
-                type="button"
                 onClick={() => {
                   deleteParcel(deleteConfirmParcel.id);
                   setDeleteConfirmParcel(null);
                 }}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/30"
+                className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm"
               >
-                ລຶບລາຍການ
+                ລຶບເລີຍ
               </button>
             </div>
           </div>

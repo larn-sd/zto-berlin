@@ -22,11 +22,14 @@ import {
   Database,
   Check,
   Copy,
-  RefreshCw
+  RefreshCw,
+  KeyRound,
+  Lock
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { TabKey } from '../types';
+import { TabKey, isUserAdmin } from '../types';
 import { StaffManagementModal } from './StaffManagementModal';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface NavbarProps {
   currentTab: TabKey;
@@ -46,17 +49,18 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
     loadDemoData,
     supabaseConnected,
     supabaseHealth,
-    disputeClaims,
+    bills,
     financialLedger,
     refreshSupabaseData
   } = useApp();
 
   const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const isStaff = currentUser?.role === 'staff';
+  const isStaff = !isUserAdmin(currentUser);
 
   // Discrepancy counts
   const missingCount = parcels.filter(p => p.status === 'pending_arrival').length;
@@ -65,9 +69,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
 
   // In-branch pending pickup
   const waitingPickupCount = parcels.filter(p => p.status === 'in_branch').length;
-
-  // Open dispute claims
-  const openDisputesCount = disputeClaims.filter(c => c.status === 'pending' || c.status === 'investigating').length;
 
   const allNavItems: { key: TabKey; label: string; icon: React.ReactNode; badge?: number; badgeColor?: string }[] = [
     { 
@@ -109,20 +110,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
       badgeColor: 'bg-emerald-100 text-emerald-800'
     },
     { 
-      key: 'disputes', 
-      label: '6. ຂໍ້ຂັດແຍ່ງ (Disputes)', 
-      icon: <ShieldAlert className="w-4 h-4" />,
-      badge: openDisputesCount > 0 ? openDisputesCount : undefined,
-      badgeColor: 'bg-rose-600 text-white'
-    },
-    { 
-      key: 'financial_ledger', 
-      label: '7. ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ', 
-      icon: <Wallet className="w-4 h-4" />,
-      badge: financialLedger.length > 0 ? financialLedger.length : undefined,
-      badgeColor: 'bg-emerald-100 text-emerald-800'
-    },
-    { 
       key: 'bills_history', 
       label: 'ປະຫວັດໃບບິນ', 
       icon: <Receipt className="w-4 h-4" /> 
@@ -132,10 +119,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
       label: 'ຂໍ້ມູນລູກຄ້າ', 
       icon: <Users className="w-4 h-4" /> 
     },
+    { 
+      key: 'financial_ledger', 
+      label: 'ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ', 
+      icon: <Wallet className="w-4 h-4" />,
+      badge: financialLedger.length > 0 ? financialLedger.length : undefined,
+      badgeColor: 'bg-emerald-100 text-emerald-800'
+    },
   ];
 
-  // Role permissions filter: Staff sees Dashboard, Parcel Tracking, Branch Scan, Checkout, Disputes, Ledger, Bills History
-  const staffAllowedTabs: TabKey[] = ['dashboard', 'parcel_tracking', 'branch_scan', 'customer_checkout', 'disputes', 'financial_ledger', 'bills_history'];
+  // Role permissions: Staff sees ONLY: 1. ຕິດຕາມເຄື່ອງ, 2. ສະແກນຮັບເຂົ້າ, 3. ສະແກນຈ່າຍລູກຄ້າ, 4. ປະຫວັດບິນ
+  const staffAllowedTabs: TabKey[] = ['parcel_tracking', 'branch_scan', 'customer_checkout', 'bills_history'];
   const navItems = isStaff 
     ? allNavItems.filter(item => staffAllowedTabs.includes(item.key))
     : allNavItems;
@@ -153,8 +147,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg text-slate-900 tracking-tight">ZTO Berlin</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
-                  {isStaff ? 'ພະນັກງານ' : 'ເຈົ້າຂອງຮ້ານ'}
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                  isStaff 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                    : 'bg-amber-50 text-amber-900 border-amber-300'
+                }`}>
+                  {isStaff ? '📦 ພະນັກງານ (Staff)' : '👑 ເຈົ້າຂອງຮ້ານ (Admin)'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-medium">
@@ -258,54 +256,104 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
                         {currentUser.name}
                       </div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                        <span className={`w-1.5 h-1.5 rounded-full ${currentUser.role === 'owner' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                        {currentUser.role === 'owner' ? 'ເຈົ້າຂອງຮ້ານ' : 'ພະນັກງານສາຂາ'}
+                        <span className={`w-1.5 h-1.5 rounded-full ${!isStaff ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                        {!isStaff ? '👑 ເຈົ້າຂອງຮ້ານ (Admin)' : '📦 ພະນັກງານ (Staff)'}
                       </div>
                     </div>
                   </button>
 
                   {/* Role switch dropdown on hover/click */}
-                  <div className="absolute right-0 top-full mt-1 w-60 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 hidden group-hover:block group-focus-within:block z-50">
-                    <div className="px-3 py-1.5 text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                      ປ່ຽນບັນຊີເຂົ້າໃຊ້ (Switch User)
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 hidden group-hover:block group-focus-within:block z-50">
+                    <div className="px-3 py-1.5 text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center justify-between">
+                      <span>ປ່ຽນບັນຊີເຂົ້າໃຊ້ (Switch User)</span>
+                      {isStaff && <span className="text-[10px] text-amber-700 bg-amber-100 font-bold px-1.5 py-0.5 rounded">Staff Mode</span>}
                     </div>
-                    {users.map(u => (
-                      <button
-                        key={u.id}
-                        onClick={() => switchUser(u.id)}
-                        className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-slate-50 transition ${
-                          currentUser.id === u.id ? 'bg-indigo-50/70 text-indigo-700 font-bold' : 'text-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                          <div>
-                            <div>{u.name}</div>
-                            <div className="text-[10px] text-slate-400">{u.role === 'owner' ? 'ເຈົ້າຂອງຮ້ານ (Owner)' : 'ພະນັກງານ (Staff)'}</div>
-                          </div>
+
+                    {/* Staff Security Notice banner */}
+                    {isStaff && (
+                      <div className="mx-2 mb-2 p-2.5 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                        <div className="font-bold flex items-center gap-1 text-amber-800 mb-0.5">
+                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>ສະຫງວນສິດ Admin</span>
                         </div>
-                        {currentUser.id === u.id && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-600 text-white font-bold">ປັດຈຸບັນ</span>
-                        )}
-                      </button>
-                    ))}
+                        ພະນັກງານ (Staff) ບໍ່ສາມາດສະຫຼັບເປັນ Admin ໄດ້. ຫາກຕ້ອງການເຂົ້າ Admin ໃຫ້ກົດ <strong>ອອກຈາກລະບົບ</strong> ແລ້ວ Login ດ້ວຍລະຫັດ Admin.
+                      </div>
+                    )}
+
+                    <div className="space-y-0.5">
+                      {users.map(u => {
+                        const isTargetAdmin = isUserAdmin(u);
+                        const isLockedForStaff = isStaff && isTargetAdmin;
+
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => {
+                              if (isLockedForStaff) return;
+                              switchUser(u.id);
+                            }}
+                            disabled={isLockedForStaff}
+                            className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between transition ${
+                              currentUser.id === u.id 
+                                ? 'bg-indigo-50/70 text-indigo-700 font-bold' 
+                                : isLockedForStaff 
+                                  ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 select-none' 
+                                  : 'hover:bg-slate-50 text-slate-700 cursor-pointer'
+                            }`}
+                            title={isLockedForStaff ? 'ພະນັກງານບໍ່ສາມາດປ່ຽນເປັນ Admin ໄດ້ (ຕ້ອງ Logout ແລ້ວ Login)' : undefined}
+                          >
+                            <div className="flex items-center gap-2">
+                              {isLockedForStaff ? (
+                                <Lock className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                              ) : (
+                                <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              )}
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span>{u.name}</span>
+                                  {isLockedForStaff && (
+                                    <span className="text-[9px] bg-rose-100 text-rose-700 px-1 py-0.2 rounded font-bold">🔒 ລັອກ (Admin)</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400">{isTargetAdmin ? '👑 ເຈົ້າຂອງຮ້ານ (Admin)' : '📦 ພະນັກງານ (Staff)'}</div>
+                              </div>
+                            </div>
+                            {currentUser.id === u.id && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-600 text-white font-bold">ປັດຈຸບັນ</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
 
                     <div className="my-1.5 border-t border-slate-100" />
 
-                    {/* Manage Staff button */}
+                    {/* Manage Staff button (ADMIN ONLY) */}
+                    {!isStaff && (
+                      <button
+                        onClick={() => setShowStaffModal(true)}
+                        className="w-full px-3 py-2 text-left text-xs text-indigo-700 font-bold flex items-center gap-2 hover:bg-indigo-50 transition cursor-pointer"
+                      >
+                        <UserPlus className="w-4 h-4 text-indigo-600" />
+                        <span>+ ຈັດການ / ເພີ່ມພະນັກງານ</span>
+                      </button>
+                    )}
+
+                    {/* Change Password button */}
                     <button
-                      onClick={() => setShowStaffModal(true)}
-                      className="w-full px-3 py-2 text-left text-xs text-indigo-700 font-bold flex items-center gap-2 hover:bg-indigo-50 transition"
+                      onClick={() => setShowPasswordModal(true)}
+                      className="w-full px-3 py-2 text-left text-xs text-slate-700 font-semibold flex items-center gap-2 hover:bg-slate-50 transition cursor-pointer"
                     >
-                      <UserPlus className="w-4 h-4 text-indigo-600" />
-                      <span>+ ຈັດການ / ເພີ່ມພະນັກງານ</span>
+                      <KeyRound className="w-4 h-4 text-slate-500" />
+                      <span>🔑 ປ່ຽນລະຫັດຜ່ານ (Change Password)</span>
                     </button>
 
                     <div className="my-1 border-t border-slate-100" />
 
                     <button
                       onClick={logout}
-                      className="w-full px-3 py-1.5 text-left text-xs text-rose-600 flex items-center gap-2 hover:bg-rose-50 transition"
+                      className="w-full px-3 py-1.5 text-left text-xs text-rose-600 flex items-center gap-2 hover:bg-rose-50 transition cursor-pointer"
                     >
                       <LogOut className="w-3.5 h-3.5" />
                       <span>ອອກຈາກລະບົບ</span>
@@ -321,13 +369,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
         {isStaff && (
           <div className="bg-amber-500/15 border border-amber-300 text-amber-900 text-xs px-3.5 py-1.5 rounded-xl my-2 flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 font-medium">
-              <span>📦 ທ່ານກຳລັງຢູ່ໃນໂໝດ: <strong>ພະນັກງານ ({currentUser.name})</strong> — ຈະເຫັນສະເພາະໜ້າສະແກນ ແລະ ໃບບິນ.</span>
+              <span>📦 ທ່ານກຳລັງຢູ່ໃນໂໝດ: <strong>ພະນັກງານ ({currentUser?.name || 'ພະນັກງານ'})</strong> — ເຫັນສະເພາະ: ຕິດຕາມເຄື່ອງ, ສະແກນຮັບເຂົ້າ, ສະແກນຈ່າຍລູກຄ້າ, ປະຫວັດບິນ.</span>
             </div>
             <button
-              onClick={() => switchUser('usr-1')}
+              onClick={logout}
               className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] transition shadow-xs cursor-pointer"
             >
-              👑 ສະຫຼັບເປັນ "larn (ເຈົ້າຂອງຮ້ານ)" ເພື່ອເບິ່ງທັງໝົດ
+              ອອກຈາກລະບົບ
             </button>
           </div>
         )}
@@ -413,9 +461,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
                     </div>
                   </div>
                   <div className="p-3 bg-white border border-slate-200 rounded-xl">
-                    <div className="text-slate-500 font-mono">3. dispute_claims</div>
-                    <div className="text-base font-bold text-rose-700 mt-1">
-                      {disputeClaims.length} ລາຍການ
+                    <div className="text-slate-500 font-mono">3. bills (ໃບບິນ & ໜີ້)</div>
+                    <div className="text-base font-bold text-indigo-700 mt-1">
+                      {bills.length} ໃບບິນ
                     </div>
                   </div>
                   <div className="p-3 bg-white border border-slate-200 rounded-xl">
@@ -433,7 +481,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
                   <span className="font-bold text-indigo-900">SQL Setup Helper (Supabase SQL Editor)</span>
                   <button
                     onClick={() => {
-                      const sql = `-- Allow read/write for all 4 tables in Supabase:\nCREATE POLICY IF NOT EXISTS "anon_all" ON parcels FOR ALL TO anon USING (true) WITH CHECK (true);\nCREATE POLICY IF NOT EXISTS "anon_all" ON customers FOR ALL TO anon USING (true) WITH CHECK (true);\nCREATE POLICY IF NOT EXISTS "anon_all" ON dispute_claims FOR ALL TO anon USING (true) WITH CHECK (true);\nCREATE POLICY IF NOT EXISTS "anon_all" ON financial_ledger FOR ALL TO anon USING (true) WITH CHECK (true);`;
+                      const sql = `-- Allow read/write for all tables in Supabase:\nCREATE POLICY IF NOT EXISTS "anon_all" ON parcels FOR ALL TO anon USING (true) WITH CHECK (true);\nCREATE POLICY IF NOT EXISTS "anon_all" ON customers FOR ALL TO anon USING (true) WITH CHECK (true);\nCREATE POLICY IF NOT EXISTS "anon_all" ON financial_ledger FOR ALL TO anon USING (true) WITH CHECK (true);`;
                       navigator.clipboard.writeText(sql);
                       setCopiedSql(true);
                       setTimeout(() => setCopiedSql(false), 2000);
@@ -468,6 +516,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Change Password Modal */}
+      {showPasswordModal && (
+        <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />
       )}
     </header>
   );

@@ -333,28 +333,17 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          {/* View mode toggle */}
-          <div className="bg-slate-100 p-1 rounded-2xl flex items-center gap-1 border border-slate-200 text-xs font-bold">
+        <div className="flex items-center gap-3">
+          {onNavigateTab && (
             <button
-              onClick={() => setViewMode('split')}
-              className={`px-3 py-1.5 rounded-xl transition ${viewMode === 'split' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+              onClick={() => onNavigateTab('parcel_tracking')}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition"
+              title="ໄປເບິ່ງລາຍການເຄື່ອງທັງໝົດ"
             >
-              ສະແດງທັງສອງ
+              <Boxes className="w-4 h-4 text-indigo-600" />
+              <span>ຕິດຕາມເຄື່ອງທັງໝົດ</span>
             </button>
-            <button
-              onClick={() => setViewMode('scanner')}
-              className={`px-3 py-1.5 rounded-xl transition ${viewMode === 'scanner' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              ຈໍສະແກນ
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 rounded-xl transition ${viewMode === 'list' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
-            >
-              ລາຍການເຄື່ອງສາຂາ ({inBranchParcels.length})
-            </button>
-          </div>
+          )}
 
           <div className="text-right sm:pl-3 sm:border-l border-slate-200">
             <div className="text-[11px] text-slate-400">ພະນັກງານປະຈຳ:</div>
@@ -737,173 +726,32 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
         </div>
       )}
 
-      {/* Full In-Branch Parcels List Table (ສະແດງເຄື່ອງທີ່ຢູ່ສາຂາທັງໝົດ ເປັນ List ຄືໜ້າສາງໃຫຍ່) */}
-      {(viewMode === 'split' || viewMode === 'list') && (
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-xs space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-            <div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
-                <Boxes className="w-5 h-5 text-indigo-600" />
-                <span>ລາຍການພັດສະດຸທັງໝົດທີ່ຢູ່ສາຂາ (In Branch Inventory: {inBranchParcels.length} ຊິ້ນ)</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                ເຄື່ອງທັງໝົດທີ່ສະແກນຮັບເຂົ້າສາຂາແລ້ວ ພ້ອມໃຫ້ລູກຄ້າມາຮັບ (ລວມທັງເຄື່ອງທີ່ສາງໃຫຍ່ລືມສະແກນ)
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Search box */}
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={inBranchSearch}
-                  onChange={(e) => setInBranchSearch(e.target.value)}
-                  placeholder="ຄົ້ນຫາ ລະຫັດ, ຊື່, ເບີ..."
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {/* Export to Excel */}
-              <button
-                onClick={handleExportInBranch}
-                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
-                title="ດາວໂຫລດລາຍການເຄື່ອງຢູ່ສາຂາເປັນ Excel"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export Excel</span>
-              </button>
-            </div>
+      {/* Quick link to All Parcels Tracking (duplicate table removed as requested) */}
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+            <Boxes className="w-6 h-6" />
           </div>
-
-          {/* Filter tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-bold">
-            <button
-              onClick={() => setInBranchFilter('all')}
-              className={`px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
-                inBranchFilter === 'all' 
-                  ? 'bg-slate-900 text-white shadow-xs' 
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              ທັງໝົດຢູ່ສາຂາ ({inBranchParcels.length})
-            </button>
-            <button
-              onClick={() => setInBranchFilter('manifested')}
-              className={`px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
-                inBranchFilter === 'manifested' 
-                  ? 'bg-emerald-600 text-white shadow-xs' 
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              ມີໃນສາງໃຫຍ່ ({manifestedInBranch.length})
-            </button>
-            <button
-              onClick={() => setInBranchFilter('unmanifested')}
-              className={`px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
-                inBranchFilter === 'unmanifested' 
-                  ? 'bg-purple-600 text-white shadow-xs' 
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              ສາງໃຫຍ່ລືມສະແກນ ({unmanifestedInBranch.length})
-            </button>
-          </div>
-
-          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-            <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider">
-                <tr>
-                  <th className="py-3 px-3">#</th>
-                  <th className="py-3 px-3">ວັນທີ</th>
-                  <th className="py-3 px-3">ລະຫັດເຄື່ອງ</th>
-                  <th className="py-3 px-3">ລະຫັດຂົນສົ່ງ</th>
-                  <th className="py-3 px-3">ຊື່ລູກຄ້າ</th>
-                  <th className="py-3 px-3">ເບີໂທ</th>
-                  <th className="py-3 px-3 text-right">ລາຄາເກັບລູກຄ້າ</th>
-                  <th className="py-3 px-3 text-right">ຕົ້ນທຶນສາງ</th>
-                  <th className="py-3 px-3">ເວລາສະແກນເຂົ້າ</th>
-                  <th className="py-3 px-3">ພະນັກງານ</th>
-                  <th className="py-3 px-3">ປະເພດ</th>
-                  <th className="py-3 px-3">ໝາຍເຫດ</th>
-                  <th className="py-3 px-3 text-center">ຈັດການ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredInBranch.length === 0 ? (
-                  <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-400">
-                      {inBranchParcels.length === 0 
-                        ? 'ຍັງບໍ່ມີພັດສະດຸຮອດສາຂາ. ກະລຸນາສະແກນຮັບເຄື່ອງເຂົ້າສາຂາຂ້າງເທິງ' 
-                        : 'ບໍ່ພົບພັດສະດຸຕາມຄຳຄົ້ນຫາ ຫຼື ຕົວກັ່ນຕອງ'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredInBranch.map((p, idx) => {
-                    const isUnman = p.isUnmanifested || p.status === 'unmanifested' || p.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ');
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="py-2.5 px-3 text-slate-600 font-mono">{formatDateDisplay(p.date)}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-700">{p.parcelCode}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-700">{p.shippingCode}</td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-900">{p.customerName}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-600">{p.customerPhone || '-'}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900 text-right">{formatKip(p.customerPrice)}</td>
-                        <td className="py-2.5 px-3 font-mono text-amber-700 font-semibold text-right">{formatKip(p.warehouseCost)}</td>
-                        <td className="py-2.5 px-3 font-mono text-slate-600">{p.arrivedAt || 'ມື້ນີ້'}</td>
-                        <td className="py-2.5 px-3 text-slate-700">{p.arrivedByStaff || 'ພະນັກງານ'}</td>
-                        <td className="py-2.5 px-3">
-                          {isUnman ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                              <AlertOctagon className="w-3 h-3 text-purple-600" />
-                              <span>ສາງໃຫຍ່ລືມ</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              <span>ມີໃນສາງໃຫຍ່</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-500 max-w-xs truncate">{p.notes || '-'}</td>
-                        <td className="py-2.5 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => openEditModal(p)}
-                              className="p-1.5 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 transition"
-                              title="ແກ້ໄຂຂໍ້ມູນລູກຄ້າ / ລາຄາ"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            {onNavigateTab && (
-                              <button
-                                onClick={() => onNavigateTab('customer_checkout')}
-                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] flex items-center gap-1 transition"
-                                title="ໄປໜ້າສະແກນຈ່າຍໃຫ້ລູກຄ້າ"
-                              >
-                                <ShoppingBag className="w-3 h-3" />
-                                <span>ຈ່າຍເຄື່ອງ</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setDeleteConfirmParcel(p)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                              title="ລຶບລາຍການ"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          <div>
+            <div className="font-bold text-slate-900 text-sm sm:text-base">
+              ລາຍການພັດສະດຸທັງໝົດ (ເກັບໄວ້ທີ່ໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ")
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              ເຄື່ອງທັງໝົດທີ່ສະແກນເຂົ້າສາຂາແລ້ວ: <strong className="text-indigo-600 font-mono font-bold">{inBranchParcels.length}</strong> ຊິ້ນ (ລວມສາງໃຫຍ່ລືມ: <span className="font-mono font-bold text-purple-700">{unmanifestedInBranch.length}</span> ຊິ້ນ)
+            </p>
           </div>
         </div>
-      )}
+
+        {onNavigateTab && (
+          <button
+            onClick={() => onNavigateTab('parcel_tracking')}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition"
+          >
+            <span>ເບິ່ງລາຍການໃນໜ້າຕິດຕາມເຄື່ອງ</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        )}
+      </div>
 
       {/* Modal to Register Unmanifested Parcel with Complete 11 Details */}
       {showUnmanifestedModal && (

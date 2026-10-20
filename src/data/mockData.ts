@@ -3,20 +3,22 @@ import { User, WarehouseParcel, CheckoutBill, Customer } from '../types';
 export const INITIAL_USERS: User[] = [
   {
     id: 'usr-1',
-    username: 'admin',
-    name: 'larn',
+    username: 'larn',
+    name: 'larn (Admin)',
     role: 'owner',
     branchName: 'ສາຂາ ໜອງບົວທອງ (Berlin)',
     phone: '020 55123456',
+    password: 'larn123',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'
   },
   {
     id: 'usr-2',
     username: 'staff',
-    name: 'ທ້າວ ສົມພອນ ແກ້ວມະນີ',
+    name: 'staff (ພະນັກງານ)',
     role: 'staff',
     branchName: 'ສາຂາ ໜອງບົວທອງ (Berlin)',
     phone: '020 99876543',
+    password: '123',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop&q=80'
   }
 ];
