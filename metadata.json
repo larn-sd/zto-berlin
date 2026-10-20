@@ -1,0 +1,6 @@
+{
+  "name": "ລະບົບຈັດການພັດສະດຸສາຂາ - Branch Express Logistics",
+  "description": "ລະບົບຈັດການພັດສະດຸຂົນສົ່ງສຳລັບສາຂາ: ນຳເຂົ້າຈາກສາງໃຫຍ່ຜ່ານ Excel, ສະແກນຮັບເຄື່ອງ, ທຽບເຄື່ອງຕົກຄ້າງ, ສະແກນຈ່າຍເຄື່ອງພ້ອມໃບບິນ ແລະ ຫຼັກຖານໂອນ, Dashboard ລາຍຮັບ-ລາຍຈ່າຍ ແລະ ຖານຂໍ້ມູນລູກຄ້າ",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
