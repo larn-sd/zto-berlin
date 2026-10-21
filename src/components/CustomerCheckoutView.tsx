@@ -17,13 +17,18 @@ import {
   Sparkles,
   Camera,
   Image as ImageIcon,
-  Calendar
+  Calendar,
+  AlertTriangle
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WarehouseParcel, CheckoutBill, PaymentMethod, isUserAdmin } from '../types';
 import { ReceiptModal } from './ReceiptModal';
 import { SAMPLE_TRANSFER_SLIP } from '../data/mockData';
 import { areSameCustomer } from '../utils/customerHelper';
+import { CameraBarcodeScannerModal } from './CameraBarcodeScannerModal';
+import { useBarcodeScannerGun } from '../hooks/useBarcodeScannerGun';
+import { cleanScannedBarcode, isBarcodeMatch } from '../utils/barcode';
+import { sound } from '../utils/audio';
 
 export const CustomerCheckoutView: React.FC = () => {
   const { parcels, checkoutParcels, customers, scanArrivalCode, currentUser } = useApp();
@@ -52,9 +57,19 @@ export const CustomerCheckoutView: React.FC = () => {
 
   // Completed bill modal state
   const [completedBill, setCompletedBill] = useState<CheckoutBill | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
   const slipInputRef = useRef<HTMLInputElement>(null);
+
+  // Global Hardware Barcode Scanner Gun Listener
+  useBarcodeScannerGun({
+    onScan: (code) => {
+      handleBarcodeScan(code);
+    },
+    enabled: true
+  });
 
   // Available parcels in branch waiting for pickup
   const availableInBranch = parcels.filter(p => p.status === 'in_branch' || p.status === 'unmanifested');
@@ -70,46 +85,77 @@ export const CustomerCheckoutView: React.FC = () => {
   });
   const isVipCustomer = Boolean(matchedCustomer?.isVip);
 
-  // Handle single scan
-  const handleSingleScan = (e: React.FormEvent) => {
-    e.preventDefault();
-    const raw = scanInput.trim().toUpperCase();
+  // Resilient barcode scan handler for input, camera, and hardware gun
+  const handleBarcodeScan = (codeToScan: string) => {
+    const raw = cleanScannedBarcode(codeToScan).toUpperCase();
     if (!raw) return;
 
-    // Check if already in cart
-    if (cartItems.some(p => p.parcelCode.toUpperCase() === raw || p.shippingCode.toUpperCase() === raw)) {
-      alert(`ພັດສະດຸລະຫັດ ${raw} ຢູ່ໃນລາຍການຈ່າຍເຄື່ອງແລ້ວ!`);
+    setScanFeedback(null);
+
+    // 1. Check if already in cart
+    if (cartItems.some(p => isBarcodeMatch(p.parcelCode, raw) || isBarcodeMatch(p.shippingCode, raw))) {
+      sound.playWarning();
+      setScanFeedback({
+        type: 'warning',
+        message: `ພັດສະດຸລະຫັດ ${raw} ຢູ່ໃນລາຍການຈ່າຍເຄື່ອງແລ້ວ!`
+      });
       setScanInput('');
       return;
     }
 
-    // Find parcel in branch stock
+    // 2. Find parcel in branch stock
     const found = availableInBranch.find(
-      p => p.parcelCode.toUpperCase() === raw || p.shippingCode.toUpperCase() === raw
+      p => isBarcodeMatch(p.parcelCode, raw) || isBarcodeMatch(p.shippingCode, raw)
     );
 
     if (found) {
+      sound.playSuccess();
       addItemToCart(found);
+      setScanFeedback({
+        type: 'success',
+        message: `✓ ເພີ່ມໃສ່ກະຕ່າຈ່າຍເຄື່ອງ: ${found.parcelCode} (${found.customerName})`
+      });
+      setScanInput('');
+      return;
+    }
+
+    // 3. Check if it's already delivered
+    const delivered = parcels.find(
+      p => (isBarcodeMatch(p.parcelCode, raw) || isBarcodeMatch(p.shippingCode, raw)) && p.status === 'delivered'
+    );
+    if (delivered) {
+      sound.playWarning();
+      setScanFeedback({
+        type: 'warning',
+        message: `⚠️ ພັດສະດຸລະຫັດ ${raw} ໄດ້ມອບໃຫ້ລູກຄ້າ ແລະ ອອກໃບບິນແລ້ວ!`
+      });
+      setScanInput('');
+      return;
+    }
+
+    // 4. In manifest (pending arrival) or unmanifested: auto check-in and add to cart!
+    const autoRes = scanArrivalCode(raw, { autoRegister: true });
+    if (autoRes.parcel) {
+      sound.playSuccess();
+      addItemToCart(autoRes.parcel);
+      setScanFeedback({
+        type: 'success',
+        message: `✓ ຮັບເຂົ້າສາຂາ ແລະ ເພີ່ມໃສ່ບິນຈ່າຍເຄື່ອງທັນທີ: ${autoRes.parcel.parcelCode}`
+      });
       setScanInput('');
     } else {
-      // Check if it's already delivered
-      const delivered = parcels.find(
-        p => (p.parcelCode.toUpperCase() === raw || p.shippingCode.toUpperCase() === raw) && p.status === 'delivered'
-      );
-      if (delivered) {
-        alert(`ພັດສະດຸລະຫັດ ${raw} ໄດ້ມອບໃຫ້ລູກຄ້າແລ້ວ! (ບິນ: ${delivered.billId || 'ສຳເລັດ'})`);
-      } else {
-        // Not checked into branch yet (or unmanifested / สางใหญ่ลืมสะแกน)
-        // Auto-register to branch and immediately add to checkout cart!
-        const autoRes = scanArrivalCode(raw);
-        if (autoRes.parcel) {
-          addItemToCart(autoRes.parcel);
-          setScanInput('');
-        } else {
-          alert(`ບໍ່ພົບພັດສະດຸລະຫັດ ${raw}`);
-        }
-      }
+      sound.playWarning();
+      setScanFeedback({
+        type: 'error',
+        message: autoRes.message || `ບໍ່ສາມາດສະແກນພັດສະດຸລະຫັດ ${raw}`
+      });
     }
+  };
+
+  // Handle single scan from form submit
+  const handleSingleScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleBarcodeScan(scanInput);
   };
 
   // Add parcel to cart and auto-fill customer info if empty
@@ -350,31 +396,66 @@ export const CustomerCheckoutView: React.FC = () => {
         {/* Left 7 Cols: Scanner, Cart Items & Customer Multi-pack Alert */}
         <div className="lg:col-span-7 space-y-6">
           {/* Scan Bar */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-              ສະແກນບາໂຄດ ຫຼື ລະຫັດເຄື່ອງ / ລະຫັດຂົນສົ່ງ ເພື່ອຈ່າຍໃຫ້ລູກຄ້າ:
-            </label>
-            <form onSubmit={handleSingleScan} className="flex gap-2">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                ສະແກນບາໂຄດ ຫຼື ລະຫັດເຄື່ອງ / ລະຫັດຂົນສົ່ງ ເພື່ອຈ່າຍໃຫ້ລູກຄ້າ:
+              </label>
+              <span className="text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>ພ້ອມຮັບສັນຍານເຄື່ອງຍິງ (HID Gun)</span>
+              </span>
+            </div>
+
+            <form onSubmit={handleSingleScan} className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
                 <input
                   ref={scanInputRef}
                   type="text"
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
-                  placeholder="ສະແກນບາໂຄດ ຫຼື ພິມລະຫັດເຄື່ອງ..."
+                  placeholder="ຍິງບາໂຄດດ້ວຍເຄື່ອງຍິງ ຫຼື ພິມລະຫັດ..."
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase"
                   autoFocus
                 />
                 <ScanLine className="w-5 h-5 text-slate-400 absolute left-3 top-3.5" />
               </div>
-              <button
-                type="submit"
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition"
-              >
-                <Plus className="w-4 h-4" />
-                <span>ເພີ່ມ</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>ເພີ່ມ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCameraModal(true)}
+                  className="px-4 py-3 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition cursor-pointer shrink-0"
+                >
+                  <Camera className="w-4 h-4 text-emerald-200" />
+                  <span>ເປີດກ້ອງ</span>
+                </button>
+              </div>
             </form>
+
+            {/* Scan Feedback Banner */}
+            {scanFeedback && (
+              <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 transition ${
+                scanFeedback.type === 'success'
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  : scanFeedback.type === 'warning'
+                  ? 'bg-amber-50 border border-amber-200 text-amber-800'
+                  : 'bg-rose-50 border border-rose-200 text-rose-800'
+              }`}>
+                {scanFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                )}
+                <span className="font-medium">{scanFeedback.message}</span>
+              </div>
+            )}
 
             {/* Quick Helper: Select from in-branch stock */}
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -813,6 +894,15 @@ export const CustomerCheckoutView: React.FC = () => {
       {completedBill && (
         <ReceiptModal bill={completedBill} onClose={() => setCompletedBill(null)} />
       )}
+
+      {/* Camera Barcode Scanner Modal */}
+      <CameraBarcodeScannerModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onScan={(code) => handleBarcodeScan(code)}
+        title="ສະແກນຈ່າຍເຄື່ອງໃຫ້ລູກຄ້າ (Customer Checkout Scanner)"
+        description="ຈໍ່ກ້ອງໃສ່ບາໂຄດ ຫຼື QR Code ເພື່ອເພີ່ມເຂົ້າໃບບິນຈ່າຍເຄື່ອງທັນທີ"
+      />
     </div>
   );
 };

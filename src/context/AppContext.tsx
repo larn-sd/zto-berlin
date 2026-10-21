@@ -48,12 +48,14 @@ import {
   deleteLedgerEntryFromSupabase,
   SupabaseHealth
 } from '../services/supabaseService';
+import { cleanScannedBarcode, isBarcodeMatch } from '../utils/barcode';
 
-interface ScanResult {
+export interface ScanResult {
   success: boolean;
   type: 'matched' | 'unmanifested' | 'already_scanned' | 'already_delivered';
   message: string;
   parcel?: WarehouseParcel;
+  isAutoRegistered?: boolean;
 }
 
 interface CheckoutData {
@@ -104,7 +106,7 @@ interface AppContextType {
   deleteParcel: (id: string) => void;
 
   // Branch Arrival Scan (ຂໍ້ 3)
-  scanArrivalCode: (code: string) => ScanResult;
+  scanArrivalCode: (code: string, options?: { autoRegister?: boolean }) => ScanResult;
   registerUnmanifestedParcel: (
     dataOrCode: string | {
       parcelCode: string;
@@ -787,8 +789,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Branch Arrival Scan (ຂໍ້ 3 & 4)
-  const scanArrivalCode = (rawCode: string): ScanResult => {
-    const cleanCode = (rawCode || '').replace(/[\r\n\t]/g, '').trim().toUpperCase();
+  const scanArrivalCode = (rawCode: string, options?: { autoRegister?: boolean }): ScanResult => {
+    const cleanCode = cleanScannedBarcode(rawCode).toUpperCase();
     if (!cleanCode) {
       return { success: false, type: 'unmanifested', message: 'ກະລຸນາປ້ອນລະຫັດເຄື່ອງ ຫຼື ລະຫັດຂົນສົ່ງ' };
     }
@@ -796,22 +798,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
 
-    // Strip non-alphanumeric for resilient barcode matching
-    const stripCode = (s: string) => (s || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    const targetClean = stripCode(cleanCode);
-
-    // Match either parcelCode OR shippingCode (exact or stripped)
+    // Match either parcelCode OR shippingCode using flexible barcode matcher
     const existingIndex = parcels.findIndex(
-      p => {
-        const p1 = (p.parcelCode || '').trim().toUpperCase();
-        const p2 = (p.shippingCode || '').trim().toUpperCase();
-        return p1 === cleanCode || p2 === cleanCode || (targetClean && (stripCode(p1) === targetClean || stripCode(p2) === targetClean));
-      }
+      p => isBarcodeMatch(p.parcelCode, cleanCode) || isBarcodeMatch(p.shippingCode, cleanCode)
     );
 
     if (existingIndex !== -1) {
       const parcel = parcels[existingIndex];
-      const matchedField = (parcel.parcelCode || '').toUpperCase() === cleanCode ? 'parcelCode' : 'shippingCode';
+      const matchedField = isBarcodeMatch(parcel.parcelCode, cleanCode) ? 'parcelCode' : 'shippingCode';
 
       if (parcel.status === 'in_branch') {
         sound.playWarning();
@@ -873,6 +867,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // UNMANIFESTED (ສາງໃຫຍ່ລືມສະແກນ):
+    if (options?.autoRegister) {
+      const newParcel = registerUnmanifestedParcel({
+        parcelCode: cleanCode,
+        shippingCode: cleanCode,
+        customerName: 'ລູກຄ້າ',
+        customerPhone: '',
+        customerPrice: 20000,
+        warehouseCost: 0,
+        notes: 'ສາງໃຫຍ່ລືມສະແກນ - ຮັບເຂົ້າອັດຕະໂນມັດ'
+      });
+
+      sound.playSuccess();
+      return {
+        success: true,
+        type: 'unmanifested',
+        message: `ຮັບເຂົ້າສາຂາອັດຕະໂນມັດ: ${cleanCode} (ສາງໃຫຍ່ລືມສະແກນ)`,
+        parcel: newParcel,
+        isAutoRegistered: true
+      };
+    }
+
     // Alert the user that this item is NOT in the warehouse manifest!
     sound.playWarning();
     return {

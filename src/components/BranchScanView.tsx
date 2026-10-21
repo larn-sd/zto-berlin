@@ -24,11 +24,17 @@ import {
   Filter,
   Check,
   X,
-  Trash2
+  Trash2,
+  Camera,
+  Zap,
+  QrCode
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WarehouseParcel, TabKey } from '../types';
 import { formatDateDisplay, exportToExcel } from '../utils/excel';
+import { CameraBarcodeScannerModal } from './CameraBarcodeScannerModal';
+import { useBarcodeScannerGun } from '../hooks/useBarcodeScannerGun';
+import { cleanScannedBarcode, isBarcodeMatch } from '../utils/barcode';
 
 interface BranchScanViewProps {
   onNavigateTab?: (tab: TabKey) => void;
@@ -86,7 +92,19 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
     notes: ''
   });
 
+  // Camera Modal & Auto-register settings
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [autoRegisterMode, setAutoRegisterMode] = useState(true);
+
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Global Hardware Barcode Scanner Gun Listener
+  useBarcodeScannerGun({
+    onScan: (scannedCode) => {
+      triggerScan(scannedCode);
+    },
+    enabled: true
+  });
 
   // Keep input focused for physical scanner
   useEffect(() => {
@@ -95,10 +113,10 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
 
   // Unified scan handler for both input submit and test buttons
   const triggerScan = (codeToScan: string) => {
-    const raw = codeToScan.trim();
+    const raw = cleanScannedBarcode(codeToScan).toUpperCase();
     if (!raw) return;
 
-    const result = scanArrivalCode(raw);
+    const result = scanArrivalCode(raw, { autoRegister: autoRegisterMode });
 
     if (result.success && result.parcel) {
       setLastResult({
@@ -108,27 +126,28 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
         scannedCode: raw
       });
     } else if (result.type === 'unmanifested') {
-      // ⚠️ ALERT: Item is NOT in warehouse manifest!
-      setLastResult({
-        status: 'unmanifested',
-        message: result.message,
-        scannedCode: raw
-      });
-      setUnmanifestedForm({
-        date: new Date().toISOString().split('T')[0],
-        parcelCode: raw,
-        shippingCode: raw,
-        customerName: '',
-        customerPhone: '',
-        customerPrice: '20000',
-        warehouseCost: '0',
-        weightKg: '',
-        volumeCbm: '',
-        warehouseCostYuan: '',
-        notes: 'ສາງໃຫຍ່ລືມສະແກນ - ພົບເຄື່ອງຕົວຈິງຢູ່ສາຂາ'
-      });
-      // Automatically prompt user to enter complete details as requested!
-      setShowUnmanifestedModal(true);
+      if (!autoRegisterMode) {
+        // ⚠️ ALERT: Item is NOT in warehouse manifest!
+        setLastResult({
+          status: 'unmanifested',
+          message: result.message,
+          scannedCode: raw
+        });
+        setUnmanifestedForm({
+          date: new Date().toISOString().split('T')[0],
+          parcelCode: raw,
+          shippingCode: raw,
+          customerName: '',
+          customerPhone: '',
+          customerPrice: '20000',
+          warehouseCost: '0',
+          weightKg: '',
+          volumeCbm: '',
+          warehouseCostYuan: '',
+          notes: 'ສາງໃຫຍ່ລືມສະແກນ - ພົບເຄື່ອງຕົວຈິງຢູ່ສາຂາ'
+        });
+        setShowUnmanifestedModal(true);
+      }
     } else if (result.type === 'already_scanned') {
       setLastResult({
         status: 'already',
@@ -407,36 +426,73 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
           <div className="lg:col-span-7 space-y-6">
             <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
               <div className="relative z-10">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                   <span className="text-xs uppercase font-bold text-indigo-300 tracking-wider flex items-center gap-2">
                     <Barcode className="w-4 h-4" />
                     <span>ຊ່ອງສະແກນບາໂຄດ (Barcode Scanner Ready)</span>
                   </span>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-500/30">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>ພ້ອມຮັບສັນຍານ</span>
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold border border-emerald-500/30">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      <span>ພ້ອມຮັບສັນຍານເຄື່ອງຍິງ (HID Gun)</span>
+                    </span>
+                  </div>
                 </div>
 
-                {/* Form Input */}
-                <form onSubmit={handleScanSubmit} className="space-y-4">
-                  <div className="relative">
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={inputCode}
-                      onChange={(e) => setInputCode(e.target.value)}
-                      placeholder="ຍິງບາໂຄດ ຫຼື ພິມລະຫັດເຄື່ອງ / ລະຫັດຂົນສົ່ງ..."
-                      className="w-full pl-5 pr-28 py-4 bg-slate-800/90 border-2 border-indigo-500/60 focus:border-indigo-400 rounded-2xl text-base sm:text-lg font-mono font-bold text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition"
-                      autoFocus
-                    />
+                {/* Form Input + Camera Button */}
+                <form onSubmit={handleScanSubmit} className="space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <div className="relative flex-1">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={inputCode}
+                        onChange={(e) => setInputCode(e.target.value)}
+                        placeholder="ຍິງບາໂຄດດ້ວຍເຄື່ອງຍິງ ຫຼື ພິມລະຫັດ..."
+                        className="w-full pl-5 pr-28 py-4 bg-slate-800/90 border-2 border-indigo-500/60 focus:border-indigo-400 rounded-2xl text-base sm:text-lg font-mono font-bold text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition shadow-inner"
+                        autoFocus
+                      />
+                      <button
+                        type="submit"
+                        className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                        <span>ສະແກນ</span>
+                      </button>
+                    </div>
+
+                    {/* Camera Scanner Button */}
                     <button
-                      type="submit"
-                      className="absolute right-2 top-2 bottom-2 px-5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl transition shadow-md flex items-center gap-1.5"
+                      type="button"
+                      onClick={() => setShowCameraModal(true)}
+                      className="px-5 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-2xl transition shadow-lg flex items-center justify-center gap-2 border border-emerald-400/30 cursor-pointer shrink-0"
                     >
-                      <ScanLine className="w-4 h-4" />
-                      <span>ສະແກນ</span>
+                      <Camera className="w-5 h-5 text-emerald-200" />
+                      <span>ເປີດກ້ອງສະແກນ (Camera)</span>
                     </button>
+                  </div>
+
+                  {/* Auto-Register Toggle Option */}
+                  <div className="flex items-center justify-between bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-700/80 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>ຮັບເຂົ້າສາຂາອັດຕະໂນມັດ (Auto Check-In)</span>
+                          <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono font-bold">ແນະນຳ</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400">ເຖິງສາງໃຫຍ່ຈະລືມສະແກນ ລະບົບຈະຮັບເຂົ້າສາຂາໃຫ້ທັນທີ ສະແກນຕໍ່ເນື່ອງບໍ່ສະດຸດ</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                      <input
+                        type="checkbox"
+                        checked={autoRegisterMode}
+                        onChange={(e) => setAutoRegisterMode(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
                   </div>
                 </form>
 
@@ -1106,6 +1162,15 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
           </div>
         </div>
       )}
+
+      {/* Camera Barcode Scanner Modal */}
+      <CameraBarcodeScannerModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onScan={(code) => triggerScan(code)}
+        title="ສະແກນຮັບເຄື່ອງເຂົ້າສາຂາ (Branch Inbound Scanner)"
+        description="ຈໍ່ກ້ອງໃສ່ບາໂຄດ ຫຼື QR Code ເພື່ອຮັບເຄື່ອງເຂົ້າສາຂາທັນທີ"
+      />
     </div>
   );
 };
