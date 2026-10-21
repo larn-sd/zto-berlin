@@ -69,7 +69,7 @@ interface CheckoutData {
   transferRef?: string;
   transferProofUrl?: string;
   notes?: string;
-  date?: string; // Custom bill date (YYYY-MM-DD)
+  date?: string;
 }
 
 interface AppContextType {
@@ -86,7 +86,6 @@ interface AppContextType {
   bills: CheckoutBill[];
   customers: Customer[];
 
-  // Supabase Live Data & Operations
   supabaseConnected: boolean;
   supabaseHealth: SupabaseHealth | null;
   disputeClaims: DisputeClaim[];
@@ -99,13 +98,11 @@ interface AppContextType {
   deleteLedgerEntry: (id: string) => Promise<void>;
   toggleCustomerVip: (customerIdOrPhone: string, isVip: boolean, notes?: string) => Promise<void>;
 
-  // Warehouse Inbound (ຂໍ້ 2)
   addWarehouseParcels: (newParcels: Omit<WarehouseParcel, 'id' | 'status' | 'importedAt'>[]) => number;
   addSingleParcel: (parcel: Partial<WarehouseParcel>) => void;
   updateParcel: (id: string, updatedData: Partial<WarehouseParcel>) => void;
   deleteParcel: (id: string) => void;
 
-  // Branch Arrival Scan (ຂໍ້ 3)
   scanArrivalCode: (code: string, options?: { autoRegister?: boolean }) => ScanResult;
   registerUnmanifestedParcel: (
     dataOrCode: string | {
@@ -127,26 +124,21 @@ interface AppContextType {
     notes?: string
   ) => WarehouseParcel;
 
-  // Checkout / Billing (ຂໍ້ 5)
   checkoutParcels: (data: CheckoutData) => CheckoutBill;
   updateBill: (billId: string, updatedData: Partial<CheckoutBill>) => void;
   deleteBill: (billId: string, restoreParcels?: boolean) => void;
 
-  // Customers (ຂໍ້ 7)
   addOrUpdateCustomer: (customer: Partial<Customer>) => void;
   updateCustomer: (id: string, updatedData: Partial<Customer>, updateLinkedParcels?: boolean) => void;
   deleteCustomer: (id: string) => void;
 
-  // Staff & User Management (ເພີ່ມພະນັກງານເອງ & ປ່ຽນລະຫັດຜ່ານ)
   addUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, data: Partial<User>) => void;
   deleteUser: (id: string) => void;
   changePassword: (userId: string, newPassword: string) => boolean;
 
-  // Debt tracking: Mark bill as paid
   markBillAsPaid: (billId: string, paymentMethod: 'cash' | 'transfer', proofUrl?: string, bank?: string, ref?: string) => void;
 
-  // Reset & Clear
   clearAllData: () => void;
   loadDemoData: () => void;
   resetToDefaultData: () => void;
@@ -154,7 +146,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-// Standard V5 storage keys
 const STORAGE_KEYS = {
   USER: 'lao_logistics_current_user_v5',
   USERS: 'lao_logistics_users_v5_clean',
@@ -167,11 +158,6 @@ const STORAGE_KEYS = {
   SOUND: 'lao_logistics_sound_enabled'
 };
 
-/**
- * Resilient multi-key data recovery:
- * Searches primary key, candidate historical keys, and ANY key in localStorage
- * to ensure user data entered previously is NEVER lost!
- */
 function loadWithRecovery<T>(
   primaryKey: string,
   candidateKeys: string[],
@@ -179,7 +165,6 @@ function loadWithRecovery<T>(
 ): T[] {
   if (typeof window === 'undefined') return [];
   try {
-    // 1. Try primary key first
     const primary = localStorage.getItem(primaryKey);
     if (primary) {
       try {
@@ -188,7 +173,6 @@ function loadWithRecovery<T>(
       } catch {}
     }
 
-    // 2. Try candidate historical keys
     for (const k of candidateKeys) {
       const val = localStorage.getItem(k);
       if (val) {
@@ -202,7 +186,6 @@ function loadWithRecovery<T>(
       }
     }
 
-    // 3. Scan all keys in localStorage to recover data from any previous key
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key || key === primaryKey || candidateKeys.includes(key)) continue;
@@ -266,12 +249,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USER);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return parsed;
-      }
+      if (saved) return JSON.parse(saved);
     } catch {}
-    return null; // Show Login screen!
+    return null;
   });
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -283,24 +263,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Resiliently load parcels with recovery across all historical and existing keys
   const [parcels, setParcels] = useState<WarehouseParcel[]>(() => {
     try {
       const recovered = loadWithRecovery<WarehouseParcel>(
         STORAGE_KEYS.PARCELS,
-        [
-          'lao_logistics_parcels_v5',
-          'lao_logistics_parcels_v4',
-          'lao_logistics_parcels_v3',
-          'lao_logistics_parcels_v2',
-          'lao_logistics_parcels',
-          'zto_berlin_parcels_persistent_backup',
-          'parcels',
-          'warehouse_parcels'
-        ],
+        ['lao_logistics_parcels_v5', 'lao_logistics_parcels_v4', 'parcels'],
         (p) => Boolean(p && (p.parcelCode || p.shippingCode || p.customerName))
       );
-
       if (recovered.length > 0) {
         return recovered.map((p: WarehouseParcel) => ({
           ...p,
@@ -315,14 +284,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const recovered = loadWithRecovery<CheckoutBill>(
         STORAGE_KEYS.BILLS,
-        [
-          'lao_logistics_bills_v5',
-          'lao_logistics_bills_v4',
-          'lao_logistics_bills_v3',
-          'lao_logistics_bills_v2',
-          'lao_logistics_bills',
-          'bills'
-        ],
+        ['lao_logistics_bills_v5', 'bills'],
         (b) => Boolean(b && (b.parcelIds || b.totalCustomerPrice !== undefined))
       );
       if (recovered.length > 0) return recovered;
@@ -334,19 +296,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const recovered = loadWithRecovery<Customer>(
         STORAGE_KEYS.CUSTOMERS,
-        [
-          'lao_logistics_customers_v5',
-          'lao_logistics_customers_v4',
-          'lao_logistics_customers_v3',
-          'lao_logistics_customers_v2',
-          'lao_logistics_customers',
-          'customers'
-        ],
+        ['lao_logistics_customers_v5', 'customers'],
         (c) => Boolean(c && (c.totalParcels !== undefined || c.name || c.phone))
       );
-      if (recovered.length > 0) {
-        return consolidateCustomers(recovered);
-      }
+      if (recovered.length > 0) return consolidateCustomers(recovered);
     } catch {}
     return [];
   });
@@ -355,14 +308,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const recovered = loadWithRecovery<ArrivalScanLog>(
         STORAGE_KEYS.SCAN_LOGS,
-        [
-          'lao_logistics_scan_logs_v5',
-          'lao_logistics_scan_logs_v4',
-          'lao_logistics_scan_logs_v3',
-          'lao_logistics_scan_logs_v2',
-          'lao_logistics_scan_logs',
-          'scan_logs'
-        ],
+        ['lao_logistics_scan_logs_v5', 'scan_logs'],
         (s) => Boolean(s && s.scannedCode)
       );
       if (recovered.length > 0) return recovered;
@@ -389,7 +335,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [supabaseConnected, setSupabaseConnected] = useState<boolean>(false);
   const [supabaseHealth, setSupabaseHealth] = useState<SupabaseHealth | null>(null);
 
-  // Persist to local storage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
@@ -439,7 +384,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSupabaseHealth(health);
       setSupabaseConnected(health.connected);
 
-      // 1. Fetch parcels directly from Supabase table 'parcels'
+      // 1. Fetch parcels directly from Supabase
       const remoteParcels = await fetchParcelsFromSupabase();
       if (remoteParcels && remoteParcels.length > 0) {
         setParcels(prev => {
@@ -457,7 +402,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 2. Fetch customers directly from Supabase table 'customers'
+      // 2. Fetch customers directly from Supabase
       const remoteCustomers = await fetchCustomersFromSupabase();
       if (remoteCustomers && remoteCustomers.length > 0) {
         setCustomers(prev => {
@@ -476,13 +421,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 3. Fetch dispute claims directly from Supabase table 'dispute_claims'
+      // 3. Fetch dispute claims
       const remoteDisputes = await fetchDisputeClaimsFromSupabase();
       if (remoteDisputes && remoteDisputes.length > 0) {
         setDisputeClaims(remoteDisputes);
       }
 
-      // 4. Fetch financial ledger directly from Supabase table 'financial_ledger'
+      // 4. Fetch financial ledger
       const remoteLedger = await fetchFinancialLedgerFromSupabase();
       if (remoteLedger && remoteLedger.length > 0) {
         setFinancialLedger(remoteLedger);
@@ -492,9 +437,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Initial load from Supabase
   useEffect(() => {
     refreshSupabaseData();
+    // Auto-refresh every 15 seconds to sync data across all devices
+    const interval = setInterval(() => {
+      refreshSupabaseData();
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const addDisputeClaim = async (claimData: Omit<DisputeClaim, 'id' | 'created_at'>) => {
@@ -506,7 +455,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setDisputeClaims(prev => [newClaim, ...prev]);
 
-    // Send directly to Supabase table dispute_claims
     const res = await createDisputeClaimInSupabase(claimData);
     if (res.success && res.data) {
       setDisputeClaims(prev => prev.map(c => c.id === localId ? res.data! : c));
@@ -535,7 +483,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setFinancialLedger(prev => [newEntry, ...prev]);
 
-    // Send directly to Supabase table financial_ledger
     const res = await insertLedgerEntryToSupabase(entryData);
     if (res.success && res.data) {
       setFinancialLedger(prev => prev.map(e => e.id === localId ? res.data! : e));
@@ -567,8 +514,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playSuccess();
   };
 
-  // Auto-sync and reconcile customers with all parcels:
-  // Merges typos (e.g. vinut vs vnut, hch vs HCH, 59977559 vs 2059977559, and hch 59977559 with hch 0)
   useEffect(() => {
     if (parcels.length > 0) {
       setCustomers(current => consolidateCustomers(syncCustomersWithParcels(parcels, current)));
@@ -583,7 +528,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const trimmedUser = username.trim().toLowerCase();
     const trimmedPin = pin.trim();
 
-    // Match by direct username or by alias
     let matchedUser = users.find(u => u.username.toLowerCase() === trimmedUser);
     if (!matchedUser) {
       if (trimmedUser === 'admin' || trimmedUser === 'owner' || trimmedUser === 'larn') {
@@ -594,7 +538,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (matchedUser) {
-      // Validate password: exact match with stored password
       const expectedPassword = matchedUser.password || (matchedUser.role === 'owner' ? 'larn123' : '123');
       if (trimmedPin === expectedPassword || (trimmedPin === 'larn123' && (matchedUser.role === 'owner' || matchedUser.role === 'admin'))) {
         setCurrentUser(matchedUser);
@@ -675,7 +618,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = users.find(u => u.id === userId);
     if (!target) return;
 
-    // Security check: staff cannot switch to admin or owner
     const isCurrentStaff = !isUserAdmin(currentUser);
     const isTargetAdmin = isUserAdmin(target);
     if (isCurrentStaff && isTargetAdmin) {
@@ -690,7 +632,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playSuccess();
   };
 
-  // Add parcels from main warehouse (Excel upload or batch)
+  // Add parcels from main warehouse (Excel upload or batch) -> SYNC DIRECT TO SUPABASE
   const addWarehouseParcels = (newItems: Omit<WarehouseParcel, 'id' | 'status' | 'importedAt'>[]): number => {
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
@@ -715,10 +657,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return all;
     });
 
+    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
+    formatted.forEach(parcel => {
+      insertParcelToSupabase(parcel).catch(err => {
+        console.warn('Supabase batch insertParcel error:', err);
+      });
+    });
+
     sound.playSuccess();
     return formatted.length;
   };
 
+  // Add single parcel -> SYNC DIRECT TO SUPABASE
   const addSingleParcel = (parcelData: Partial<WarehouseParcel>) => {
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
@@ -742,6 +692,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setParcels(prev => [newParcel, ...prev]);
+
+    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
+    insertParcelToSupabase(newParcel).catch(err => {
+      console.warn('Supabase insertParcel error:', err);
+    });
 
     if (newParcel.customerPhone && newParcel.customerName) {
       addOrUpdateCustomer({
@@ -788,7 +743,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Branch Arrival Scan (ຂໍ້ 3 & 4)
   const scanArrivalCode = (rawCode: string, options?: { autoRegister?: boolean }): ScanResult => {
     const cleanCode = cleanScannedBarcode(rawCode).toUpperCase();
     if (!cleanCode) {
@@ -798,7 +752,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
 
-    // Match either parcelCode OR shippingCode using flexible barcode matcher
     const existingIndex = parcels.findIndex(
       p => isBarcodeMatch(p.parcelCode, cleanCode) || isBarcodeMatch(p.shippingCode, cleanCode)
     );
@@ -827,7 +780,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // Update status to in_branch
       const updatedParcel: WarehouseParcel = {
         ...parcel,
         status: 'in_branch',
@@ -839,7 +791,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       newParcels[existingIndex] = updatedParcel;
       setParcels(newParcels);
 
-      // Record log
       const log: ArrivalScanLog = {
         id: `scan-${Date.now()}`,
         scanTime: timeStr,
@@ -852,7 +803,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       setScanLogs(prev => [log, ...prev]);
 
-      // Direct Supabase Live Update: update status to in_branch in Supabase table 'parcels'
       updateParcelStatusInSupabase(parcel.parcelCode, 'in_branch').catch(err => {
         console.warn('Supabase parcel status update error:', err);
       });
@@ -866,7 +816,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // UNMANIFESTED (ສາງໃຫຍ່ລືມສະແກນ):
     if (options?.autoRegister) {
       const newParcel = registerUnmanifestedParcel({
         parcelCode: cleanCode,
@@ -888,7 +837,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    // Alert the user that this item is NOT in the warehouse manifest!
     sound.playWarning();
     return {
       success: false,
@@ -897,7 +845,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  // Register an unmanifested parcel (ສາງໃຫຍ່ລືມສະແກນ) with full 11-field details
   const registerUnmanifestedParcel = (
     dataOrCode: string | {
       parcelCode: string;
@@ -971,7 +918,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setScanLogs(prev => [log, ...prev]);
 
-    // Direct Supabase Live Insert: insert into Supabase table 'parcels'
+    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
     insertParcelToSupabase(newParcel).catch(err => {
       console.warn('Supabase insertParcel error:', err);
     });
@@ -980,7 +927,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newParcel;
   };
 
-  // Customer Checkout & Bill generation (ຂໍ້ 5)
   const checkoutParcels = (data: CheckoutData): CheckoutBill => {
     const now = new Date();
     const dateStr = data.date && data.date.trim() ? data.date.trim() : now.toISOString().split('T')[0];
@@ -1018,7 +964,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes: data.notes
     };
 
-    // Update parcels to delivered locally
     setParcels(prev => 
       prev.map(p => {
         if (data.parcelIds.includes(p.id)) {
@@ -1034,14 +979,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // Direct Supabase Live Update: update status to delivered in Supabase table 'parcels'
     checkoutItems.forEach(p => {
       updateParcelStatusInSupabase(p.parcelCode, 'delivered', data.paymentMethod).catch(err => {
         console.warn('Supabase status update error:', err);
       });
     });
 
-    // Direct Supabase Live Ledger: Record income only if paid (debt will be recorded upon settlement)
     if (!isDebt) {
       addLedgerEntry({
         type: 'income',
@@ -1054,10 +997,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    // Save Bill
     setBills(prev => [newBill, ...prev]);
 
-    // Update customer stats
     if (data.customerPhone) {
       addOrUpdateCustomer({
         name: data.customerName,
@@ -1087,7 +1028,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // If date was modified, also update linked parcels' deliveredAt
     if (updatedData.date) {
       setParcels(prev =>
         prev.map(p => {
@@ -1130,7 +1070,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playSuccess();
   };
 
-  // Customer DB with smart matching (hch == HCH, vinut == vnut, 59977559 == 2059977559, koung != hch)
+  // Customer DB with smart matching & direct Supabase sync
   const addOrUpdateCustomer = (c: Partial<Customer>) => {
     if (!c.phone && !c.name) return;
     const rawName = (c.name || '').trim();
@@ -1153,7 +1093,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (rawName) nameAliases.add(rawName);
         if (rawPhone) phoneAliases.add(rawPhone);
 
-        // Keep the longer/cleaner name (e.g. Vinut over vnut)
         let canonicalName = existing.name;
         if (rawName && rawName.length > existing.name.length && areSameCustomer({ name: rawName, phone: rawPhone }, { name: existing.name, phone: existing.phone })) {
           canonicalName = rawName;
@@ -1164,200 +1103,3 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           name: canonicalName,
           phone: existing.phone || displayPhone,
           village: c.village || existing.village,
-          district: c.district || existing.district,
-          province: c.province || existing.province,
-          totalParcels: existing.totalParcels + (c.totalParcels || 0),
-          totalSpent: existing.totalSpent + (c.totalSpent || 0),
-          lastActive: c.lastActive || todayStr,
-          notes: c.notes || existing.notes,
-          nameAliases: Array.from(nameAliases),
-          phoneAliases: Array.from(phoneAliases)
-        };
-        const updatedList = [...prev];
-        updatedList[idx] = updated;
-        return updatedList;
-      } else {
-        const newCustomer: Customer = {
-          id: `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          name: rawName || 'ລູກຄ້າ',
-          phone: displayPhone,
-          village: c.village || '',
-          district: c.district || '',
-          province: c.province || 'ນະຄອນຫຼວງວຽງຈັນ',
-          totalParcels: c.totalParcels || 1,
-          totalSpent: c.totalSpent || 0,
-          lastActive: todayStr,
-          notes: c.notes || '',
-          nameAliases: rawName ? [rawName] : [],
-          phoneAliases: rawPhone ? [rawPhone] : []
-        };
-        return [newCustomer, ...prev];
-      }
-    });
-  };
-
-  const updateCustomer = (id: string, updatedData: Partial<Customer>, updateLinkedParcels: boolean = true) => {
-    const target = customers.find(c => c.id === id);
-    if (!target) return;
-
-    const newName = (updatedData.name !== undefined ? updatedData.name : target.name).trim();
-    const newPhoneRaw = (updatedData.phone !== undefined ? updatedData.phone : target.phone).trim();
-    const normPhone = normalizePhone(newPhoneRaw);
-    const displayPhone = normPhone ? formatLaoPhoneDisplay(normPhone) : newPhoneRaw;
-
-    const updatedCustomer: Customer = {
-      ...target,
-      ...updatedData,
-      name: newName || target.name,
-      phone: displayPhone,
-      notes: updatedData.notes !== undefined ? updatedData.notes : target.notes,
-      village: updatedData.village !== undefined ? updatedData.village : target.village,
-      district: updatedData.district !== undefined ? updatedData.district : target.district,
-      province: updatedData.province !== undefined ? updatedData.province : target.province,
-      nameAliases: [newName, ...(target.nameAliases || [])].filter((a, idx, arr) => a && arr.indexOf(a) === idx && areNamesSimilar(a, newName)),
-      phoneAliases: [displayPhone, normPhone, ...(target.phoneAliases || [])].filter((p, idx, arr) => p && arr.indexOf(p) === idx && p !== '0')
-    };
-
-    setCustomers(prev => prev.map(c => c.id === id ? updatedCustomer : c));
-
-    if (updateLinkedParcels) {
-      setParcels(prevParcels => {
-        return prevParcels.map(p => {
-          const cleanP = cleanCustomerNameAndPhone(p.customerName || '', p.customerPhone || '');
-          const cleanTarget = cleanCustomerNameAndPhone(target.name, target.phone);
-          if (areSameCustomer(cleanTarget, cleanP)) {
-            return {
-              ...p,
-              customerName: newName || p.customerName,
-              customerPhone: displayPhone !== undefined ? displayPhone : p.customerPhone
-            };
-          }
-          return p;
-        });
-      });
-    }
-
-    sound.playSuccess();
-  };
-
-  const deleteCustomer = (id: string) => {
-    setCustomers(prev => prev.filter(c => c.id !== id));
-    sound.playSuccess();
-  };
-
-  // Staff & User Management Functions (ເພີ່ມ, ແກ້ໄຂ, ລຶບພະນັກງານ)
-  const addUser = (userData: Omit<User, 'id'>) => {
-    const newUser: User = {
-      ...userData,
-      id: `usr-${Date.now()}`,
-      branchName: userData.branchName || 'ສາຂາ ໜອງບົວທອງ (Berlin)',
-      avatar: userData.avatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80`
-    };
-    setUsers(prev => [...prev, newUser]);
-    sound.playSuccess();
-  };
-
-  const updateUser = (id: string, data: Partial<User>) => {
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...data } : u));
-    if (currentUser?.id === id) {
-      setCurrentUser(prev => prev ? { ...prev, ...data } : null);
-    }
-    sound.playSuccess();
-  };
-
-  const deleteUser = (id: string) => {
-    if (id === 'usr-1' || currentUser?.id === id) return;
-    setUsers(prev => prev.filter(u => u.id !== id));
-    sound.playSuccess();
-  };
-
-  const clearAllData = () => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PARCELS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.SCAN_LOGS, JSON.stringify([]));
-    } catch {}
-    setParcels([]);
-    setBills([]);
-    setCustomers([]);
-    setScanLogs([]);
-    sound.playWarning();
-  };
-
-  const loadDemoData = () => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PARCELS, JSON.stringify(DEMO_PRESET_PARCELS));
-      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(DEMO_PRESET_BILLS));
-      localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(DEMO_PRESET_CUSTOMERS));
-      localStorage.setItem(STORAGE_KEYS.SCAN_LOGS, JSON.stringify([]));
-    } catch {}
-    setParcels(DEMO_PRESET_PARCELS);
-    setBills(DEMO_PRESET_BILLS);
-    setCustomers(DEMO_PRESET_CUSTOMERS);
-    setScanLogs([]);
-    sound.playSuccess();
-  };
-
-  const resetToDefaultData = loadDemoData;
-
-  return (
-    <AppContext.Provider
-      value={{
-        currentUser,
-        users,
-        login,
-        logout,
-        switchUser,
-        soundEnabled,
-        toggleSound,
-        parcels,
-        scanLogs,
-        bills,
-        customers,
-        // Supabase Live Data & Operations
-        supabaseConnected,
-        supabaseHealth,
-        disputeClaims,
-        financialLedger,
-        refreshSupabaseData,
-        addDisputeClaim,
-        updateDisputeClaim,
-        deleteDisputeClaim,
-        addLedgerEntry,
-        deleteLedgerEntry,
-        toggleCustomerVip,
-        addWarehouseParcels,
-        addSingleParcel,
-        updateParcel,
-        deleteParcel,
-        scanArrivalCode,
-        registerUnmanifestedParcel,
-        checkoutParcels,
-        updateBill,
-        deleteBill,
-        addOrUpdateCustomer,
-        updateCustomer,
-        deleteCustomer,
-        addUser,
-        updateUser,
-        deleteUser,
-        changePassword,
-        markBillAsPaid,
-        clearAllData,
-        loadDemoData,
-        resetToDefaultData
-      }}
-    >
-      {children}
-    </AppContext.Provider>
-  );
-};
-
-export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
-  return context;
-};
