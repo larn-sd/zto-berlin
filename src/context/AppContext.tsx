@@ -377,14 +377,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.setEnabled(soundEnabled);
   }, [soundEnabled]);
 
-  // Real Supabase Data Synchronization
   const refreshSupabaseData = async () => {
     try {
       const health = await checkSupabaseHealth();
       setSupabaseHealth(health);
       setSupabaseConnected(health.connected);
 
-      // 1. Fetch parcels directly from Supabase
       const remoteParcels = await fetchParcelsFromSupabase();
       if (remoteParcels && remoteParcels.length > 0) {
         setParcels(prev => {
@@ -402,7 +400,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 2. Fetch customers directly from Supabase
       const remoteCustomers = await fetchCustomersFromSupabase();
       if (remoteCustomers && remoteCustomers.length > 0) {
         setCustomers(prev => {
@@ -421,13 +418,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // 3. Fetch dispute claims
       const remoteDisputes = await fetchDisputeClaimsFromSupabase();
       if (remoteDisputes && remoteDisputes.length > 0) {
         setDisputeClaims(remoteDisputes);
       }
 
-      // 4. Fetch financial ledger
       const remoteLedger = await fetchFinancialLedgerFromSupabase();
       if (remoteLedger && remoteLedger.length > 0) {
         setFinancialLedger(remoteLedger);
@@ -439,7 +434,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     refreshSupabaseData();
-    // Auto-refresh every 15 seconds to sync data across all devices
     const interval = setInterval(() => {
       refreshSupabaseData();
     }, 15000);
@@ -632,7 +626,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playSuccess();
   };
 
-  // Add parcels from main warehouse (Excel upload or batch) -> SYNC DIRECT TO SUPABASE
   const addWarehouseParcels = (newItems: Omit<WarehouseParcel, 'id' | 'status' | 'importedAt'>[]): number => {
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
@@ -657,7 +650,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return all;
     });
 
-    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
     formatted.forEach(parcel => {
       insertParcelToSupabase(parcel).catch(err => {
         console.warn('Supabase batch insertParcel error:', err);
@@ -668,7 +660,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return formatted.length;
   };
 
-  // Add single parcel -> SYNC DIRECT TO SUPABASE
   const addSingleParcel = (parcelData: Partial<WarehouseParcel>) => {
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toTimeString().slice(0, 5)}`;
@@ -693,7 +684,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setParcels(prev => [newParcel, ...prev]);
 
-    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
     insertParcelToSupabase(newParcel).catch(err => {
       console.warn('Supabase insertParcel error:', err);
     });
@@ -918,7 +908,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setScanLogs(prev => [log, ...prev]);
 
-    // 🚀 SYNC TO SUPABASE TABLE 'parcels'
     insertParcelToSupabase(newParcel).catch(err => {
       console.warn('Supabase insertParcel error:', err);
     });
@@ -1049,57 +1038,4 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetBill = bills.find(b => b.id === billId);
     if (!targetBill) return;
 
-    if (restoreParcels && targetBill.parcelIds && targetBill.parcelIds.length > 0) {
-      setParcels(prev =>
-        prev.map(p => {
-          if (targetBill.parcelIds.includes(p.id)) {
-            return {
-              ...p,
-              status: 'in_branch',
-              deliveredAt: undefined,
-              deliveredByStaff: undefined,
-              billId: undefined
-            };
-          }
-          return p;
-        })
-      );
-    }
-
-    setBills(prev => prev.filter(b => b.id !== billId));
-    sound.playSuccess();
-  };
-
-  // Customer DB with smart matching & direct Supabase sync
-  const addOrUpdateCustomer = (c: Partial<Customer>) => {
-    if (!c.phone && !c.name) return;
-    const rawName = (c.name || '').trim();
-    const rawPhone = (c.phone || '').trim();
-    const displayPhone = formatLaoPhoneDisplay(rawPhone);
-
-    setCustomers(prev => {
-      const idx = prev.findIndex(item =>
-        areSameCustomer(
-          { name: item.name, phone: item.phone },
-          { name: rawName, phone: rawPhone }
-        )
-      );
-      const todayStr = new Date().toISOString().split('T')[0];
-
-      if (idx !== -1) {
-        const existing = prev[idx];
-        const nameAliases = new Set(existing.nameAliases || [existing.name]);
-        const phoneAliases = new Set(existing.phoneAliases || [existing.phone]);
-        if (rawName) nameAliases.add(rawName);
-        if (rawPhone) phoneAliases.add(rawPhone);
-
-        let canonicalName = existing.name;
-        if (rawName && rawName.length > existing.name.length && areSameCustomer({ name: rawName, phone: rawPhone }, { name: existing.name, phone: existing.phone })) {
-          canonicalName = rawName;
-        }
-
-        const updated: Customer = {
-          ...existing,
-          name: canonicalName,
-          phone: existing.phone || displayPhone,
-          village: c.village || existing.village,
+    if (restoreParcels && targetBill.
