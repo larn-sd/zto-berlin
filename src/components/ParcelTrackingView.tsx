@@ -436,17 +436,17 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 font-bold uppercase tracking-wider">
               <tr>
-                <th className="py-3 px-4">ວັນທີ</th>
-                <th className="py-3 px-4">ຊື່ລູກຄ້າ</th>
-                <th className="py-3 px-4">ເບີໂທ</th>
-                <th className="py-3 px-4">ລະຫັດຂົນສົ່ງ</th>
-                <th className="py-3 px-4">ລະຫັດເຄື່ອງ</th>
-                <th className="py-3 px-4">ນໍ້າໜັກ / ບໍລິມາດ</th>
-                <th className="py-3 px-4">ລາຄາລູກຄ້າ</th>
-                {isAdmin && <th className="py-3 px-4">ຕົ້ນທຶນສາງ</th>}
-                <th className="py-3 px-4">ສະຖານະຕິດຕາມ</th>
-                <th className="py-3 px-4">ເວລາສະແກນ / ພະນັກງານ</th>
-                <th className="py-3 px-4">ໝາຍເຫດ</th>
+                <th className="py-3 px-4">1. ວັນທີ</th>
+                <th className="py-3 px-4">2. ຊື່ລູກຄ້າ</th>
+                <th className="py-3 px-4">3. ເບີໂທ</th>
+                <th className="py-3 px-4">4. ລະຫັດຂົນສົ່ງ</th>
+                <th className="py-3 px-4">5. ລະຫັດເຄື່ອງ</th>
+                <th className="py-3 px-4">6. ນໍ້າໜັກ / ບໍລິມາດ</th>
+                <th className="py-3 px-4">7. ລາຄາລູກຄ້າ</th>
+                {isAdmin && <th className="py-3 px-4">8. ຕົ້ນທຶນສາງ</th>}
+                <th className="py-3 px-4">9. ສະຖານະຕິດຕາມ</th>
+                <th className="py-3 px-4">10. ເວລາສະແກນ / ພະນັກງານ</th>
+                <th className="py-3 px-4">11. ໝາຍເຫດ</th>
                 <th className="py-3 px-4 text-center">ຈັດການ</th>
               </tr>
             </thead>
@@ -464,11 +464,25 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                   const isUnman = parcel.isUnmanifested || parcel.status === 'unmanifested' || parcel.notes?.includes('ສາງໃຫຍ່ລືມສະແກນ');
                   return (
                     <tr key={parcel.id} className="hover:bg-slate-50/70 transition">
+                      {/* 1. ວັນທີ */}
                       <td className="py-3 px-4 text-slate-600 font-mono">{formatDateDisplay(parcel.date)}</td>
+
+                      {/* 2. ຊື່ລູກຄ້າ */}
                       <td className="py-3 px-4 font-semibold text-slate-900">{parcel.customerName}</td>
+
+                      {/* 3. ເບີໂທ (Fixed: was previously missing causing column shift) */}
+                      <td className="py-3 px-4 font-mono text-xs text-slate-700">
+                        {parcel.customerPhone ? (
+                          <span className="font-mono text-slate-800">{parcel.customerPhone}</span>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">- ບໍ່ມີ -</span>
+                        )}
+                      </td>
+
+                      {/* 4. ລະຫັດຂົນສົ່ງ (Shipping Code / Waybill) */}
                       <td className="py-3 px-4 font-mono text-xs">
                         {parcel.shippingCode ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-800 font-semibold border border-sky-200">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200">
                             <span>🚚</span>
                             <span>{parcel.shippingCode}</span>
                           </span>
@@ -476,6 +490,8 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                           <span className="text-slate-400 italic text-[11px]">- ບໍ່ມີ -</span>
                         )}
                       </td>
+
+                      {/* 5. ລະຫັດເຄື່ອງ (Parcel Code / Barcode) */}
                       <td className="py-3 px-4 font-mono font-bold text-xs">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
                           <span>📦</span>

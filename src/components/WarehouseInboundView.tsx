@@ -628,12 +628,14 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
                 <thead className="bg-slate-50 text-slate-600 sticky top-0 font-bold border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3">#</th>
-                    <th className="py-2.5 px-3">ລະຫັດເຄື່ອງ</th>
-                    <th className="py-2.5 px-3">ລະຫັດຂົນສົ່ງ</th>
-                    <th className="py-2.5 px-3">ຊື່ລູກຄ້າ</th>
-                    <th className="py-2.5 px-3">ເບີໂທ</th>
-                    <th className="py-2.5 px-3 text-right">ລາຄາລູກຄ້າ</th>
-                    <th className="py-2.5 px-3 text-right">ຕົ້ນທຶນສາງ</th>
+                    <th className="py-2.5 px-3">1. ວັນທີ</th>
+                    <th className="py-2.5 px-3">2. ຊື່ລູກຄ້າ</th>
+                    <th className="py-2.5 px-3">3. ເບີໂທ</th>
+                    <th className="py-2.5 px-3">4. ລະຫັດຂົນສົ່ງ</th>
+                    <th className="py-2.5 px-3">5. ລະຫັດເຄື່ອງ</th>
+                    <th className="py-2.5 px-3 text-right">6. ນໍ້າໜັກ</th>
+                    <th className="py-2.5 px-3 text-right">7. ລາຄາລູກຄ້າ</th>
+                    <th className="py-2.5 px-3 text-right">8. ຕົ້ນທຶນສາງ</th>
                     <th className="py-2.5 px-3">ສະຖານະ</th>
                     <th className="py-2.5 px-3">ເວລາສະແກນ</th>
                   </tr>
@@ -642,10 +644,24 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
                   {selectedDateDetails.parcels.map((p, idx) => (
                     <tr key={p.id} className="hover:bg-slate-50">
                       <td className="py-2 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                      <td className="py-2 px-3 font-mono font-bold text-indigo-700">{p.parcelCode}</td>
-                      <td className="py-2 px-3 font-mono text-slate-700">{p.shippingCode}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{formatDateDisplay(p.date)}</td>
                       <td className="py-2 px-3 font-semibold text-slate-900">{p.customerName}</td>
-                      <td className="py-2 px-3 font-mono text-slate-600">{p.customerPhone}</td>
+                      <td className="py-2 px-3 font-mono text-slate-600">{p.customerPhone || '-'}</td>
+                      <td className="py-2 px-3 font-mono text-xs">
+                        {p.shippingCode ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                            <span>🚚</span>
+                            <span>{p.shippingCode}</span>
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td className="py-2 px-3 font-mono font-bold text-xs">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                          <span>📦</span>
+                          <span>{p.parcelCode}</span>
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-700">{p.weightKg ? `${p.weightKg} kg` : '-'}</td>
                       <td className="py-2 px-3 font-mono font-bold text-slate-900 text-right">{formatKip(p.customerPrice)}</td>
                       <td className="py-2 px-3 font-mono font-bold text-amber-700 text-right">{formatKip(p.warehouseCost)}</td>
                       <td className="py-2 px-3">
