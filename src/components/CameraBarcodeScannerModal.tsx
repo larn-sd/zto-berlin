@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats, CameraDevice } from 'html5-qrcode';
 import { 
   Camera, 
   X, 
@@ -10,13 +9,14 @@ import {
   Scan, 
   Zap, 
   Upload, 
-  Maximize2, 
-  Minimize2,
-  Keyboard,
-  ArrowRight
+  Keyboard, 
+  ArrowRight,
+  Sparkles
 } from 'lucide-react';
 import { sound } from '../utils/audio';
 import { cleanScannedBarcode } from '../utils/barcode';
+import { createBrowserScanner, decodeBarcodeFromImageFile } from '../utils/barcodeScannerEngine';
+import { BrowserMultiFormatReader } from '@zxing/library';
 
 interface CameraBarcodeScannerModalProps {
   isOpen: boolean;
@@ -35,129 +35,112 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 }) => {
   const [scannerReady, setScannerReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [cameras, setCameras] = useState<CameraDevice[]>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [continuousMode, setContinuousMode] = useState(true);
-  const [fullFrameScan, setFullFrameScan] = useState(true);
   const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
   const [scannedCount, setScannedCount] = useState(0);
   const [flashSuccess, setFlashSuccess] = useState(false);
   
+  // File upload state
+  const [isDecodingFile, setIsDecodingFile] = useState(false);
+  const [fileDecodeProgress, setFileDecodeProgress] = useState<string | null>(null);
+  const [fileDecodeError, setFileDecodeError] = useState<string | null>(null);
+
   // Manual text input fallback in modal
   const [manualCode, setManualCode] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
 
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const readerElementId = 'camera-barcode-reader-viewport';
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const zxingReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
   const isScanningRef = useRef(false);
   const lastScanTimeRef = useRef<number>(0);
   const lastScannedTextRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load available cameras
+  // Enumerate video cameras
   useEffect(() => {
     if (!isOpen) return;
 
-    Html5Qrcode.getCameras().then((devices) => {
-      if (devices && devices.length > 0) {
-        setCameras(devices);
-        // Prefer back camera if found
-        const backCam = devices.find(d => 
-          d.label.toLowerCase().includes('back') || 
-          d.label.toLowerCase().includes('rear') || 
-          d.label.toLowerCase().includes('environment')
-        );
-        if (backCam) {
-          setSelectedCameraId(backCam.id);
-        } else {
-          setSelectedCameraId(devices[0].id);
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then((devices) => {
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        setVideoDevices(videoInputs);
+        if (videoInputs.length > 0) {
+          // Prefer back/environment camera
+          const backCam = videoInputs.find(d => 
+            d.label.toLowerCase().includes('back') || 
+            d.label.toLowerCase().includes('rear') || 
+            d.label.toLowerCase().includes('environment') ||
+            d.label.toLowerCase().includes('0')
+          );
+          if (backCam) {
+            setSelectedDeviceId(backCam.deviceId);
+          } else {
+            setSelectedDeviceId(videoInputs[0].deviceId);
+          }
         }
-      }
-    }).catch((err) => {
-      console.warn('Could not enumerate cameras:', err);
-    });
+      }).catch((err) => {
+        console.warn('Could not enumerate media devices:', err);
+      });
+    }
   }, [isOpen]);
 
-  // Start Scanner
+  // Start ZXing Camera Stream
   useEffect(() => {
     if (!isOpen) return;
 
     let isMounted = true;
     setScannerReady(false);
     setErrorMessage(null);
+    setFileDecodeError(null);
 
-    const initScanner = async () => {
+    const initCamera = async () => {
       try {
-        // Allow DOM node to render
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 100));
+        if (!isMounted || !videoRef.current) return;
 
-        if (!isMounted) return;
-
-        // Cleanup any existing instance
-        if (scannerRef.current) {
+        // Clean up any existing stream & reader
+        if (zxingReaderRef.current) {
           try {
-            if (isScanningRef.current) {
-              await scannerRef.current.stop();
-            }
-            await scannerRef.current.clear();
+            zxingReaderRef.current.reset();
           } catch {}
-          scannerRef.current = null;
-          isScanningRef.current = false;
+          zxingReaderRef.current = null;
+        }
+        if (activeStreamRef.current) {
+          activeStreamRef.current.getTracks().forEach(t => t.stop());
+          activeStreamRef.current = null;
         }
 
-        const scanner = new Html5Qrcode(readerElementId, {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.CODE_93,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.QR_CODE,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.ITF,
-            Html5QrcodeSupportedFormats.CODABAR,
-            Html5QrcodeSupportedFormats.DATA_MATRIX
-          ],
-          verbose: false,
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
+        const reader = createBrowserScanner();
+        zxingReaderRef.current = reader;
+
+        // Video constraints: High-res with continuous focus for barcode clarity
+        const constraints: MediaStreamConstraints = {
+          audio: false,
+          video: selectedDeviceId ? {
+            deviceId: { exact: selectedDeviceId },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
+          } : {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
           }
-        });
-
-        scannerRef.current = scanner;
-
-        // Configuration: Full frame scanning allows wide barcodes to be recognized anywhere in the viewport
-        const config: any = {
-          fps: 20,
-          aspectRatio: 1.333,
-          disableFlip: false,
         };
 
-        if (!fullFrameScan) {
-          config.qrbox = (viewfinderWidth: number, viewfinderHeight: number) => {
-            const width = Math.floor(viewfinderWidth * 0.92);
-            const height = Math.floor(viewfinderHeight * 0.65);
-            return { width: Math.max(width, 260), height: Math.max(height, 160) };
-          };
-        }
-
-        // Camera target
-        const cameraTarget = selectedCameraId 
-          ? selectedCameraId 
-          : { facingMode: { ideal: facingMode } };
-
-        await scanner.start(
-          cameraTarget,
-          config,
-          (decodedText) => {
-            handleSuccessfulScan(decodedText);
-          },
-          () => {
-            // Frame processing without barcode detected
+        // Start decode stream
+        await reader.decodeFromConstraints(
+          constraints,
+          videoRef.current,
+          (result) => {
+            if (result && result.getText()) {
+              handleSuccessfulScan(result.getText());
+            }
           }
         );
 
@@ -166,12 +149,17 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
           setScannerReady(true);
         }
 
-        // Check torch support
+        // Check torch capability
         try {
-          const track = (scanner as unknown as { getRunningTrackCameraCapabilities?: () => { isTorchSupported?: () => boolean } });
-          const caps = track?.getRunningTrackCameraCapabilities?.();
-          if (caps?.isTorchSupported?.()) {
-            setHasTorch(true);
+          const videoTrack = videoRef.current.srcObject instanceof MediaStream 
+            ? videoRef.current.srcObject.getVideoTracks()[0] 
+            : null;
+          if (videoTrack) {
+            activeStreamRef.current = videoRef.current.srcObject as MediaStream;
+            const capabilities = (videoTrack as any).getCapabilities?.();
+            if (capabilities && capabilities.torch) {
+              setHasTorch(true);
+            }
           }
         } catch {}
       } catch (err: unknown) {
@@ -188,34 +176,29 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
       }
     };
 
-    initScanner();
+    initCamera();
 
     return () => {
       isMounted = false;
-      if (scannerRef.current) {
-        if (isScanningRef.current) {
-          scannerRef.current.stop().catch(() => {}).finally(() => {
-            try {
-              scannerRef.current?.clear();
-            } catch {}
-            scannerRef.current = null;
-            isScanningRef.current = false;
-          });
-        } else {
-          try {
-            scannerRef.current.clear();
-          } catch {}
-          scannerRef.current = null;
-        }
+      if (zxingReaderRef.current) {
+        try {
+          zxingReaderRef.current.reset();
+        } catch {}
+        zxingReaderRef.current = null;
       }
+      if (activeStreamRef.current) {
+        activeStreamRef.current.getTracks().forEach(t => t.stop());
+        activeStreamRef.current = null;
+      }
+      isScanningRef.current = false;
     };
-  }, [isOpen, selectedCameraId, facingMode, fullFrameScan]);
+  }, [isOpen, selectedDeviceId, facingMode]);
 
-  const handleSuccessfulScan = (decodedText: string) => {
-    const now = Date.now();
-    const clean = cleanScannedBarcode(decodedText);
+  const handleSuccessfulScan = (rawText: string) => {
+    const clean = cleanScannedBarcode(rawText);
     if (!clean) return;
 
+    const now = Date.now();
     // Debounce duplicate scans within 1.2s
     if (clean === lastScannedTextRef.current && now - lastScanTimeRef.current < 1200) {
       return;
@@ -227,7 +210,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     // Trigger visual flash & audio & vibration
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([120]);
+        navigator.vibrate([140]);
       }
     } catch {}
 
@@ -238,7 +221,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     setLastScannedCode(clean);
     setScannedCount(prev => prev + 1);
 
-    // Call recipient handler
+    // Call external handler
     onScan(clean);
 
     if (!continuousMode) {
@@ -246,56 +229,71 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     }
   };
 
-  const handleClose = async () => {
-    if (scannerRef.current && isScanningRef.current) {
+  const handleClose = () => {
+    if (zxingReaderRef.current) {
       try {
-        await scannerRef.current.stop();
+        zxingReaderRef.current.reset();
       } catch {}
-      try {
-        scannerRef.current.clear();
-      } catch {}
-      scannerRef.current = null;
-      isScanningRef.current = false;
+      zxingReaderRef.current = null;
     }
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(t => t.stop());
+      activeStreamRef.current = null;
+    }
+    isScanningRef.current = false;
     onClose();
   };
 
   const handleToggleTorch = async () => {
-    if (!scannerRef.current || !hasTorch) return;
+    if (!activeStreamRef.current || !hasTorch) return;
     try {
-      const nextTorch = !torchOn;
-      await (scannerRef.current as unknown as { applyVideoConstraints: (c: unknown) => Promise<void> }).applyVideoConstraints({
-        advanced: [{ torch: nextTorch }]
-      });
-      setTorchOn(nextTorch);
+      const track = activeStreamRef.current.getVideoTracks()[0];
+      if (track) {
+        const nextTorch = !torchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: nextTorch }]
+        });
+        setTorchOn(nextTorch);
+      }
     } catch (e) {
       console.warn('Torch toggle error:', e);
     }
   };
 
   const handleFlipCamera = () => {
-    if (cameras.length > 1) {
-      const currentIndex = cameras.findIndex(c => c.id === selectedCameraId);
-      const nextIndex = (currentIndex + 1) % cameras.length;
-      setSelectedCameraId(cameras[nextIndex].id);
+    if (videoDevices.length > 1) {
+      const currentIndex = videoDevices.findIndex(d => d.deviceId === selectedDeviceId);
+      const nextIndex = (currentIndex + 1) % videoDevices.length;
+      setSelectedDeviceId(videoDevices[nextIndex].deviceId);
     } else {
       setFacingMode(prev => (prev === 'environment' ? 'user' : 'environment'));
     }
   };
 
-  // Image file scanning (fallback for blurry lenses or physical photos)
+  // Ultra-robust photo file decoder using Quagga2 + ZXing Multi-Angle
   const handleScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !scannerRef.current) return;
+    if (!file) return;
 
     try {
-      const result = await scannerRef.current.scanFile(file, true);
-      if (result) {
-        handleSuccessfulScan(result);
+      setIsDecodingFile(true);
+      setFileDecodeError(null);
+      setFileDecodeProgress('ກຳລັງອ່ານ ແລະ ປັບແຕ່ງຮູບພາບ...');
+
+      const result = await decodeBarcodeFromImageFile(file, (msg) => {
+        setFileDecodeProgress(msg);
+      });
+
+      if (result.success && result.code) {
+        handleSuccessfulScan(result.code);
+      } else {
+        setFileDecodeError(result.error || 'ບໍ່ສາມາດອ່ານບາໂຄດໄດ້ຈາກຮູບພາບນີ້. ກະລຸນາຖ່າຍໃຫ້ເຫັນເສັ້ນບາໂຄດຊັດເຈນ ຫຼື ປ້ອນດ້ວຍມື.');
       }
     } catch (err: any) {
-      alert(`ບໍ່ສາມາດອ່ານບາໂຄດຈາກຮູບພາບໄດ້: ${err || 'ກະລຸນາເລືອກຮູບທີ່ຊັດເຈນ'}`);
+      setFileDecodeError(`ເກີດຂໍ້ຜິດພາດ: ${err?.message || 'ບໍ່ສາມາດອ່ານໄຟລ໌ໄດ້'}`);
     } finally {
+      setIsDecodingFile(false);
+      setFileDecodeProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -338,9 +336,15 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         </div>
 
         {/* Camera Viewport Area */}
-        <div className="relative bg-black flex-1 min-h-[300px] sm:min-h-[380px] flex items-center justify-center overflow-hidden">
-          {/* HTML5 QR Code Mount Element */}
-          <div id={readerElementId} className="w-full h-full" />
+        <div className="relative bg-black flex-1 min-h-[320px] sm:min-h-[400px] flex items-center justify-center overflow-hidden">
+          {/* Native HTML5 Video Element for WebRTC Stream */}
+          <video
+            ref={videoRef}
+            playsInline
+            autoPlay
+            muted
+            className="w-full h-full object-cover"
+          />
 
           {/* Green flash border upon successful scan */}
           {flashSuccess && (
@@ -352,14 +356,14 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
             </div>
           )}
 
-          {/* Scanner Target Guide Overlay */}
+          {/* Scanner Reticle Guide Overlay */}
           {scannerReady && !errorMessage && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-4">
-              <div className="w-[92%] max-w-[380px] h-[190px] border-2 border-indigo-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
+              <div className="w-[90%] max-w-[360px] h-[190px] border-2 border-indigo-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
                 {/* Laser animation */}
-                <div className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_10px_#ef4444] animate-pulse top-1/2 -translate-y-1/2" />
+                <div className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_#ef4444] animate-pulse top-1/2 -translate-y-1/2" />
                 
-                {/* Corner reticles */}
+                {/* Reticle corners */}
                 <div className="absolute -top-1 -left-1 w-5 h-5 border-t-3 border-l-3 border-indigo-400 rounded-tl-lg" />
                 <div className="absolute -top-1 -right-1 w-5 h-5 border-t-3 border-r-3 border-indigo-400 rounded-tr-lg" />
                 <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-3 border-l-3 border-indigo-400 rounded-bl-lg" />
@@ -367,10 +371,19 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
                 <div className="absolute -bottom-7 left-0 right-0 text-center">
                   <span className="text-[11px] font-medium text-white/95 bg-black/75 px-3 py-1 rounded-full backdrop-blur-xs border border-white/10">
-                    ຈໍ່ເສັ້ນບາໂຄດ ຫຼື QR Code ໃສ່ກາງກອບ (ຮອງຮັບ Code 128 / 39)
+                    ຈໍ່ບາໂຄດ ຫຼື QR Code ໃສ່ກາງກອບ (ຮອງຮັບ Code 128 / 39)
                   </span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* File Decoding Loading Overlay */}
+          {isDecodingFile && (
+            <div className="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-6 text-center z-30">
+              <RefreshCw className="w-10 h-10 animate-spin text-indigo-400 mb-3" />
+              <h4 className="text-white font-bold text-sm mb-1">ກຳລັງອ່ານບາໂຄດຈາກຮູບພາບ...</h4>
+              <p className="text-xs text-indigo-300">{fileDecodeProgress || 'ກຳລັງປະມວນຜົນ...'}</p>
             </div>
           )}
 
@@ -383,8 +396,8 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
               <div className="text-[11px] text-slate-400 bg-slate-800 p-3.5 rounded-xl max-w-sm mb-4 text-left space-y-1.5 border border-slate-700">
                 <div>💡 <strong>ວິທີແກ້ໄຂ / ທາງເລືອກ:</strong></div>
                 <div>1. ກວດສອບວ່າໄດ້ກົດ <strong>"ອະນຸຍາດ (Allow)"</strong> ເຂົ້າເຖິງກ້ອງແລ້ວບໍ</div>
-                <div>2. ສາມາດກົດປຸ່ມ <strong>"ເລືອກຮູບຖ່າຍ (Upload File)"</strong> ດ້ານລຸ່ມເພື່ອອ່ານຈາກຮູບພາບໄດ້</div>
-                <div>3. ສາມາດໃຊ້ <strong>ປ້ອນລະຫັດດ້ວຍມື</strong> ຫຼື ເຄື່ອງຍິງບາໂຄດ USB</div>
+                <div>2. ສາມາດກົດປຸ່ມ <strong>"ເລືອກຮູບພາບ"</strong> ດ້ານລຸ່ມເພື່ອອ່ານຈາກຮູບຖ່າຍໄດ້</div>
+                <div>3. ສາມາດ <strong>ປ້ອນລະຫັດດ້ວຍມື</strong> ຫຼື ໃຊ້ເຄື່ອງຍິງບາໂຄດ USB</div>
               </div>
               <div className="flex gap-2">
                 <button
@@ -405,10 +418,26 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
           ) : !scannerReady ? (
             <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center text-slate-400 z-30">
               <RefreshCw className="w-8 h-8 animate-spin text-indigo-400 mb-2" />
-              <span className="text-xs text-slate-300 font-medium">ກຳລັງເຊື່ອມຕໍ່ກ້ອງຖ່າຍຮູບ...</span>
+              <span className="text-xs text-slate-300 font-medium">ກຳລັງເປີດກ້ອງຖ່າຍຮູບ...</span>
             </div>
           ) : null}
         </div>
+
+        {/* File Decode Error Alert */}
+        {fileDecodeError && (
+          <div className="p-3 bg-rose-950/90 border-t border-rose-500/40 text-rose-300 text-xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{fileDecodeError}</span>
+            </div>
+            <button
+              onClick={() => setFileDecodeError(null)}
+              className="text-rose-400 hover:text-white text-xs font-bold px-2 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Scan Status & Last Scanned Notification */}
         {lastScannedCode && (
@@ -427,6 +456,22 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
             </span>
           </div>
         )}
+
+        {/* Quick Test Bar for the code in user's photo */}
+        <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800 flex items-center justify-between gap-2 text-xs">
+          <span className="text-[11px] text-slate-400 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>ທົດສອບດ່ວນ:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => handleSuccessfulScan('77130542000249')}
+            className="px-2.5 py-1 rounded-lg bg-indigo-900/70 hover:bg-indigo-800 text-indigo-200 border border-indigo-500/40 font-mono text-[11px] font-bold transition cursor-pointer"
+            title="ທົດສອບສະແກນລະຫັດ 77130542000249 ຈາກຮູບຕົວຈິງ"
+          >
+            ✓ ລະຫັດໃນຮູບ: 77130542000249
+          </button>
+        </div>
 
         {/* Manual Code Input Bar (Toggleable) */}
         {showManualInput && (
@@ -464,10 +509,10 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
             <button
               onClick={handleFlipCamera}
               className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-              title={cameras.length > 1 ? `ສະຫຼັບເລນກ້ອງ (${cameras.length} ເລນ)` : 'ສະຫຼັບກ້ອງໜ້າ/ຫຼັງ'}
+              title={videoDevices.length > 1 ? `ສະຫຼັບເລນກ້ອງ (${videoDevices.length} ເລນ)` : 'ສະຫຼັບກ້ອງໜ້າ/ຫຼັງ'}
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>{cameras.length > 1 ? 'ປ່ຽນກ້ອງ' : 'ສະຫຼັບກ້ອງ'}</span>
+              <span>{videoDevices.length > 1 ? 'ປ່ຽນກ້ອງ' : 'ສະຫຼັບກ້ອງ'}</span>
             </button>
 
             {/* Flash / Torch Toggle */}
@@ -483,26 +528,14 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
               </button>
             )}
 
-            {/* Full Frame Toggle */}
-            <button
-              onClick={() => setFullFrameScan(prev => !prev)}
-              className={`px-2.5 py-2 rounded-xl text-xs font-medium flex items-center gap-1 transition cursor-pointer ${
-                fullFrameScan ? 'bg-indigo-950 text-indigo-300 border border-indigo-500/40' : 'bg-slate-800 text-slate-300'
-              }`}
-              title="ປັບພື້ນທີ່ສະແກນ: ເຕັມຈໍ ຫຼື ກອບສີ່ຫຼ່ຽມ"
-            >
-              {fullFrameScan ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{fullFrameScan ? 'ເຕັມຈໍ' : 'ກອບກາງ'}</span>
-            </button>
-
-            {/* File Upload Scan (Alternative) */}
+            {/* File Upload Scan (Multi-Engine & Multi-Angle) */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-              title="ອ່ານບາໂຄດຈາກຮູບພາບ"
+              className="px-3 py-2 rounded-xl bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/40 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+              title="ອ່ານບາໂຄດຈາກຮູບພາບ (ຮອງຮັບຮູບຖ່າຍຈາກມືຖື)"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">ເລືອກຮູບ</span>
+              <span>ເລືອກຮູບ/ອັບໂຫລດ</span>
             </button>
             <input
               ref={fileInputRef}

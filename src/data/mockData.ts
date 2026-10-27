@@ -82,6 +82,22 @@ export const INITIAL_PARCELS: WarehouseParcel[] = [
     notes: 'ຍັງບໍ່ຮອດສາຂາ',
     importedAt: `${today} 08:30`,
     status: 'pending_arrival'
+  },
+  {
+    id: 'p-77130542000249',
+    date: today,
+    parcelCode: '77130542000249',
+    shippingCode: '77130542000249',
+    warehouseCost: 15000,
+    customerPrice: 25000,
+    customerName: 'tom',
+    customerPhone: '58381951',
+    customerAddress: '万象市占武里县BERLIN公司',
+    destinationBranch: 'ສາຂາ ໜອງບົວທອງ (Berlin)',
+    weightKg: 0.6,
+    notes: 'ເກີບ / 鞋 (WX91 BERLIN)',
+    importedAt: `${today} 09:00`,
+    status: 'pending_arrival'
   }
 ];
 
