@@ -66,6 +66,7 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
 
   // Modal for registering unmanifested item with ALL details
   const [showUnmanifestedModal, setShowUnmanifestedModal] = useState(false);
+  const [unmanifestedError, setUnmanifestedError] = useState<string | null>(null);
   const [unmanifestedForm, setUnmanifestedForm] = useState({
     date: new Date().toISOString().split('T')[0],
     parcelCode: '',
@@ -203,9 +204,10 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
     const sCode = unmanifestedForm.shippingCode.trim().toUpperCase() || unmanifestedForm.parcelCode.trim().toUpperCase();
 
     if (!pCode && !sCode) {
-      alert('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ ຫຼື ລະຫັດຂົນສົ່ງ');
+      setUnmanifestedError('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ ຫຼື ລະຫັດຂົນສົ່ງ');
       return;
     }
+    setUnmanifestedError(null);
 
     const p = registerUnmanifestedParcel({
       date: unmanifestedForm.date || new Date().toISOString().split('T')[0],
@@ -842,6 +844,12 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
                 <strong>ແຈ້ງເຕືອນ:</strong> ພົບເຄື່ອງຕົວຈິງຢູ່ສາຂາ ແຕ່ສາງໃຫຍ່ບໍ່ໄດ້ສະແກນສົ່ງມາ. ທ່ານສາມາດປ້ອນລາຍລະອຽດທັງໝົດດ້ານລຸ່ມນີ້ ເພື່ອບັນທຶກເຂົ້າສາຂາ ແລະ ສະແກນຈ່າຍເງິນໃຫ້ລູກຄ້າໄດ້ທັນທີ.
               </div>
             </div>
+
+            {unmanifestedError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                ⚠️ {unmanifestedError}
+              </div>
+            )}
 
             <form onSubmit={handleRegisterUnmanifested} className="space-y-4">
               {/* Row 1: ວັນທີ, ລະຫັດເຄື່ອງ, ລະຫັດຂົນສົ່ງ */}

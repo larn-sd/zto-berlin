@@ -51,14 +51,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
     supabaseHealth,
     bills,
     financialLedger,
-    refreshSupabaseData
+    refreshSupabaseData,
+    syncAllToSupabase
   } = useApp();
 
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showSupabaseModal, setShowSupabaseModal] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showDemoConfirm, setShowDemoConfirm] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const isStaff = !isUserAdmin(currentUser);
 
@@ -212,12 +217,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
             {/* Clear All Data Button (Owner Only) */}
             {!isStaff && (
               <button
-                onClick={() => {
-                  if (window.confirm('ທ່ານຕ້ອງການເຄຍ/ລຶບຂໍ້ມູນທັງໝົດ (ພັດສະດຸ, ໃບບິນ, ຂໍ້ມູນລູກຄ້າ) ອອກແທ້ບໍ່? ເພື່ອເລີ່ມຕົ້ນຄີຂໍ້ມູນຕົວຈິງເອງ.')) {
-                    clearAllData();
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-700 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200 transition"
+                onClick={() => setShowClearConfirm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-700 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200 transition cursor-pointer"
                 title="ເຄຍຂໍ້ມູນທັງໝົດເພື່ອຄີຂໍ້ມູນເອງ"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -228,12 +229,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
             {/* Load demo data button (Owner Only) */}
             {!isStaff && (
               <button
-                onClick={() => {
-                  if (window.confirm('ຕ້ອງການໂຫລດຂໍ້ມູນຕົວຢ່າງທົດສອບຄືນໃໝ່ບໍ່?')) {
-                    loadDemoData();
-                  }
-                }}
-                className="hidden xl:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition"
+                onClick={() => setShowDemoConfirm(true)}
+                className="hidden xl:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
                 title="ໂຫລດຂໍ້ມູນຕົວຢ່າງທົດສອບຄືນ"
               >
                 <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
@@ -503,16 +500,118 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
                   type="button"
                   onClick={async () => {
                     setIsRefreshing(true);
+                    setSyncFeedback(null);
                     await refreshSupabaseData();
                     setIsRefreshing(false);
+                    setSyncFeedback('ດຶງຂໍ້ມູນຫຼ້າສຸດຈາກ Supabase ສຳເລັດແລ້ວ!');
+                    setTimeout(() => setSyncFeedback(null), 3500);
                   }}
-                  disabled={isRefreshing}
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  disabled={isRefreshing || isSyncingAll}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  <span>ຣີເຟຣຊຂໍ້ມູນຈາກ Supabase ດຽວນີ້</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>ໂຫຼດຂໍ້ມູນຈາກ Supabase</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsSyncingAll(true);
+                    setSyncFeedback(null);
+                    const res = await syncAllToSupabase();
+                    setIsSyncingAll(false);
+                    if (res.success) {
+                      setSyncFeedback(`ອັບໂຫຼດຂໍ້ມູນທັງໝົດລົງ Supabase ສຳເລັດ ${res.count} ລາຍການ!`);
+                    } else {
+                      setSyncFeedback('ເກີດຂໍ້ຜິດພາດໃນການອັບໂຫຼດ. ກະລຸນາກວດສອບ RLS Policy');
+                    }
+                    setTimeout(() => setSyncFeedback(null), 4000);
+                  }}
+                  disabled={isRefreshing || isSyncingAll}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Database className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-pulse' : ''}`} />
+                  <span>{isSyncingAll ? 'ກຳລັງອັບໂຫຼດ...' : 'ອັບໂຫຼດທັງໝົດລົງ Supabase'}</span>
                 </button>
               </div>
+
+              {syncFeedback && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800 text-xs font-medium text-center animate-fadeIn">
+                  ✓ {syncFeedback}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Data Confirmation Modal */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base mb-1">
+              ຢືນຢັນການເຄຍຂໍ້ມູນທັງໝົດ?
+            </h3>
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              ທ່ານຕ້ອງການລຶບຂໍ້ມູນທັງໝົດ (ພັດສະດຸ, ໃບບິນ, ຂໍ້ມູນລູກຄ້າ) ອອກແທ້ບໍ່? ເພື່ອເລີ່ມຕົ້ນຄີຂໍ້ມູນຕົວຈິງເອງ.
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                ຍົກເລີກ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearAllData();
+                  setShowClearConfirm(false);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/30 cursor-pointer"
+              >
+                ເຄຍຂໍ້ມູນທັງໝົດ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Demo Data Confirmation Modal */}
+      {showDemoConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-3">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base mb-1">
+              ໂຫລດຂໍ້ມູນຕົວຢ່າງທົດສອບ?
+            </h3>
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              ລະບົບຈະໂຫລດລາຍການພັດສະດຸຕົວຢ່າງ ໃບບິນ ແລະ ລູກຄ້າເພື່ອການທົດລອງລະບົບ.
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDemoConfirm(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                ຍົກເລີກ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  loadDemoData();
+                  setShowDemoConfirm(false);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md cursor-pointer"
+              >
+                ໂຫລດຂໍ້ມູນຕົວຢ່າງ
+              </button>
             </div>
           </div>
         </div>

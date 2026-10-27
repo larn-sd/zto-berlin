@@ -47,6 +47,7 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
   const [isUploading, setIsUploading] = useState(false);
   const [previewRows, setPreviewRows] = useState<ParsedRow[] | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state for single parcel matching the 11 standard fields
@@ -132,12 +133,20 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
       setIsUploading(true);
       const rows = await parseExcelFile(file);
       if (rows.length === 0) {
-        alert('ບໍ່ພົບຂໍ້ມູນໃນໄຟລ໌ Excel ກະລຸນາກວດສອບວ່າໃຊ້ຮູບແບບ 11 ຖັນຕາມແບບຟອມ.');
+        setNotification({
+          type: 'error',
+          message: 'ບໍ່ພົບຂໍ້ມູນໃນໄຟລ໌ Excel ກະລຸນາກວດສອບວ່າໃຊ້ຮູບແບບ 11 ຖັນຕາມແບບຟອມ.'
+        });
+        setTimeout(() => setNotification(null), 5000);
         return;
       }
       setPreviewRows(rows);
     } catch (err: any) {
-      alert(`ເກີດຂໍ້ຜິດພາດໃນການອ່ານໄຟລ໌ Excel: ${err.message || 'ຮູບແບບໄຟລ໌ບໍ່ຖືກຕ້ອງ'}`);
+      setNotification({
+        type: 'error',
+        message: `ເກີດຂໍ້ຜິດພາດໃນການອ່ານໄຟລ໌ Excel: ${err.message || 'ຮູບແບບໄຟລ໌ບໍ່ຖືກຕ້ອງ'}`
+      });
+      setTimeout(() => setNotification(null), 5000);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -159,14 +168,22 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
       warehouseCost: r.warehouseCost || 0
     }));
     const count = addWarehouseParcels(mappedRows);
-    alert(`ນຳເຂົ້າພັດສະດຸຈາກສາງໃຫຍ່ສຳເລັດ ${count} ລາຍການ!\nຂໍ້ມູນທັງໝົດໄດ້ຖືກສົ່ງເຂົ້າໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ" ແລ້ວ.`);
+    setNotification({
+      type: 'success',
+      message: `ນຳເຂົ້າພັດສະດຸຈາກສາງໃຫຍ່ສຳເລັດ ${count} ລາຍການ! ບັນທຶກລົງ Supabase ແລະ ຕິດຕາມເຄື່ອງທັງໝົດແລ້ວ.`
+    });
+    setTimeout(() => setNotification(null), 5000);
     setPreviewRows(null);
   };
 
   const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.parcelCode.trim()) {
-      alert('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ (5. ລະຫັດເຄື່ອງ)');
+      setNotification({
+        type: 'error',
+        message: 'ກະລຸນາປ້ອນລະຫັດເຄື່ອງ (5. ລະຫັດເຄື່ອງ)'
+      });
+      setTimeout(() => setNotification(null), 4000);
       return;
     }
 
@@ -222,6 +239,20 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {notification && (
+        <div className={`p-4 rounded-2xl flex items-center justify-between gap-3 text-xs font-semibold shadow-md ${
+          notification.type === 'success' 
+            ? 'bg-emerald-500 text-white' 
+            : 'bg-rose-500 text-white'
+        }`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="p-1 hover:opacity-80 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
         <div>

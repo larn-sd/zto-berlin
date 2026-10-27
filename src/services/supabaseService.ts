@@ -43,7 +43,7 @@ export async function checkSupabaseHealth(): Promise<SupabaseHealth> {
     result.tableCounts.dispute_claims = disputesRes.count || 0;
     result.tableCounts.financial_ledger = ledgerRes.count || 0;
 
-    result.connected = !parcelsRes.error && !customersRes.error && !disputesRes.error && !ledgerRes.error;
+    result.connected = !parcelsRes.error && !customersRes.error;
     if (!result.connected) {
       result.error = parcelsRes.error?.message || customersRes.error?.message || disputesRes.error?.message || ledgerRes.error?.message;
     }
@@ -56,7 +56,74 @@ export async function checkSupabaseHealth(): Promise<SupabaseHealth> {
 }
 
 // ==========================================
-// 1. PARCELS OPERATIONS (Supabase table: parcels)
+// 1. STATUS MAPPING HELPERS (Local <-> Supabase)
+// ==========================================
+
+export function toSupabaseStatus(status?: string): 'PENDING_SCAN' | 'IN_BRANCH' | 'DELIVERED' | 'UNMANIFESTED' {
+  if (!status) return 'PENDING_SCAN';
+  const s = status.toLowerCase();
+  if (s === 'delivered') return 'DELIVERED';
+  if (s === 'in_branch') return 'IN_BRANCH';
+  if (s === 'unmanifested') return 'UNMANIFESTED';
+  return 'PENDING_SCAN';
+}
+
+export function fromSupabaseStatus(status?: string): 'pending_arrival' | 'in_branch' | 'delivered' | 'unmanifested' {
+  if (!status) return 'pending_arrival';
+  const s = status.toLowerCase();
+  if (s === 'delivered') return 'delivered';
+  if (s === 'in_branch') return 'in_branch';
+  if (s === 'unmanifested') return 'unmanifested';
+  return 'pending_arrival';
+}
+
+/**
+ * Format date safely to YYYY-MM-DD for PostgreSQL `date` column
+ */
+function toDateString(d?: string): string {
+  if (!d) return new Date().toISOString().split('T')[0];
+  const trimmed = d.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  // If DD/MM/YYYY
+  const parts = trimmed.split(/[/.-]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Maps a frontend WarehouseParcel into the exact PostgreSQL schema of `parcels` table.
+ * Crucial constraints:
+ * - tracking_number: UNIQUE
+ * - zto_weight: NOT NULL (default 1.0)
+ * - zto_cost: NOT NULL (default 0)
+ * - status: 'PENDING_SCAN' | 'IN_BRANCH' | 'DELIVERED' | 'UNMANIFESTED'
+ */
+export function mapParcelToSupabaseRow(p: Partial<WarehouseParcel>) {
+  const trackingNumber = (p.parcelCode || p.shippingCode || `TRK-${Date.now()}`).trim().toUpperCase();
+  const supaStatus = toSupabaseStatus(p.status || (p.isUnmanifested ? 'unmanifested' : 'pending_arrival'));
+  const isDelivered = supaStatus === 'DELIVERED';
+
+  return {
+    tracking_number: trackingNumber,
+    batch_date: toDateString(p.date),
+    customer_name: (p.customerName || 'ລູກຄ້າ').trim(),
+    customer_phone: (p.customerPhone || '').trim(),
+    zto_weight: Number(p.weightKg) > 0 ? Number(p.weightKg) : 1.0, // NOT NULL constraint
+    actual_weight: p.weightKg ? Number(p.weightKg) : null,
+    zto_cost: Number(p.warehouseCost) >= 0 ? Number(p.warehouseCost) : 0, // NOT NULL constraint
+    customer_charge: Number(p.customerPrice) >= 0 ? Number(p.customerPrice) : 0,
+    status: supaStatus,
+    payment_status: isDelivered ? 'PAID' : 'PENDING',
+    payment_method: isDelivered ? (p.notes || 'cash') : null,
+    paid_at: isDelivered ? new Date().toISOString() : null,
+  };
+}
+
+// ==========================================
+// 2. PARCELS CRUD OPERATIONS (Supabase table: parcels)
 // ==========================================
 
 export async function fetchParcelsFromSupabase(): Promise<WarehouseParcel[]> {
@@ -73,67 +140,42 @@ export async function fetchParcelsFromSupabase(): Promise<WarehouseParcel[]> {
 
     if (!data) return [];
 
-    return data.map((row: any) => ({
-      id: row.id || `sp-${Date.now()}-${Math.random()}`,
-      date: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
-      customerName: row.customer_name || 'ລູກຄ້າ',
-      customerPhone: row.customer_phone || '',
-      shippingCode: row.tracking_number || '',
-      parcelCode: row.tracking_number || '',
-      customerPrice: 15000,
-      warehouseCost: 10000,
-      importedAt: row.created_at || new Date().toISOString(),
-      status: (row.status as any) || 'pending_arrival',
-      notes: row.payment_method ? `ຊໍາລະ: ${row.payment_method}` : '',
-      isUnmanifested: row.status === 'unmanifested',
-    }));
+    return data.map((row: any) => {
+      const localStatus = fromSupabaseStatus(row.status);
+      const isUn = row.status === 'UNMANIFESTED' || localStatus === 'unmanifested';
+      return {
+        id: row.id || `sp-${Date.now()}-${Math.random()}`,
+        date: row.batch_date || (row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+        customerName: row.customer_name || 'ລູກຄ້າ',
+        customerPhone: row.customer_phone || '',
+        shippingCode: row.tracking_number || '',
+        parcelCode: row.tracking_number || '',
+        customerPrice: Number(row.customer_charge) || 15000,
+        warehouseCost: Number(row.zto_cost) || 0,
+        weightKg: Number(row.zto_weight) || 1.0,
+        importedAt: row.created_at || new Date().toISOString(),
+        status: localStatus,
+        notes: row.payment_method ? `ຊໍາລະ: ${row.payment_method}` : (isUn ? 'ສາງໃຫຍ່ລືມສະແກນ - ພົບເຄື່ອງຕົວຈິງຢູ່ສາຂາ' : ''),
+        isUnmanifested: isUn,
+        destinationBranch: 'ZTO Berlin',
+      };
+    });
   } catch (err) {
     console.warn('Error fetching parcels from Supabase:', err);
     return [];
   }
 }
 
-export async function updateParcelStatusInSupabase(
-  trackingNumber: string,
-  newStatus: string,
-  paymentMethod?: string
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const updatePayload: any = {
-      status: newStatus,
-    };
-    if (paymentMethod) {
-      updatePayload.payment_method = paymentMethod;
-    }
-
-    const { error } = await supabase
-      .from('parcels')
-      .update(updatePayload)
-      .eq('tracking_number', trackingNumber);
-
-    if (error) {
-      console.warn('Supabase updateParcelStatus warning:', error.message);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err?.message };
-  }
-}
-
+/**
+ * Insert or Upsert a single parcel to Supabase with all schema constraints satisfied
+ */
 export async function insertParcelToSupabase(parcel: Partial<WarehouseParcel>): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const payload = {
-      tracking_number: parcel.parcelCode || parcel.shippingCode || `TRK-${Date.now()}`,
-      customer_name: parcel.customerName || 'ລູກຄ້າ',
-      customer_phone: parcel.customerPhone || '',
-      status: parcel.status || 'pending_arrival',
-      payment_method: 'cash',
-    };
+    const payload = mapParcelToSupabaseRow(parcel);
 
     const { data, error } = await supabase
       .from('parcels')
-      .insert([payload])
+      .upsert([payload], { onConflict: 'tracking_number' })
       .select();
 
     if (error) {
@@ -146,13 +188,82 @@ export async function insertParcelToSupabase(parcel: Partial<WarehouseParcel>): 
   }
 }
 
+/**
+ * Batch insert/upsert parcels to Supabase in chunks (prevents HTTP payload size or rate issues)
+ */
+export async function insertParcelsBatchToSupabase(parcels: Partial<WarehouseParcel>[]): Promise<{ success: boolean; insertedCount: number; error?: string }> {
+  if (!parcels || parcels.length === 0) return { success: true, insertedCount: 0 };
+
+  try {
+    const rows = parcels.map(p => mapParcelToSupabaseRow(p));
+    const CHUNK_SIZE = 40;
+    let inserted = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const { data, error } = await supabase
+        .from('parcels')
+        .upsert(chunk, { onConflict: 'tracking_number' })
+        .select('tracking_number');
+
+      if (error) {
+        console.warn(`Supabase batch chunk ${i} warning:`, error.message);
+        return { success: false, insertedCount: inserted, error: error.message };
+      }
+      inserted += (data?.length || chunk.length);
+    }
+
+    return { success: true, insertedCount: inserted };
+  } catch (err: any) {
+    return { success: false, insertedCount: 0, error: err?.message };
+  }
+}
+
+/**
+ * Update parcel status in Supabase (e.g. IN_BRANCH, DELIVERED)
+ */
+export async function updateParcelStatusInSupabase(
+  trackingNumber: string,
+  newStatus: string,
+  paymentMethod?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanTracking = trackingNumber.trim().toUpperCase();
+    const supaStatus = toSupabaseStatus(newStatus);
+    const isDelivered = supaStatus === 'DELIVERED';
+
+    const updatePayload: any = {
+      status: supaStatus,
+    };
+
+    if (isDelivered) {
+      updatePayload.payment_status = paymentMethod === 'debt' ? 'PENDING' : 'PAID';
+      updatePayload.payment_method = paymentMethod || 'cash';
+      updatePayload.paid_at = paymentMethod === 'debt' ? null : new Date().toISOString();
+    }
+
+    const { error } = await supabase
+      .from('parcels')
+      .update(updatePayload)
+      .eq('tracking_number', cleanTracking);
+
+    if (error) {
+      console.warn('Supabase updateParcelStatus warning:', error.message);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
 export async function deleteParcelFromSupabase(trackingNumberOrId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // Try deleting by tracking_number first, or id
+    const clean = trackingNumberOrId.trim().toUpperCase();
     const { error } = await supabase
       .from('parcels')
       .delete()
-      .or(`tracking_number.eq.${trackingNumberOrId}`);
+      .or(`tracking_number.eq.${clean},tracking_number.eq.${trackingNumberOrId}`);
 
     if (error) {
       console.warn('Supabase deleteParcel warning:', error.message);
@@ -165,7 +276,7 @@ export async function deleteParcelFromSupabase(trackingNumberOrId: string): Prom
 }
 
 // ==========================================
-// 2. VIP & CUSTOMERS (Supabase table: customers)
+// 3. VIP & CUSTOMERS (Supabase table: customers)
 // ==========================================
 
 export async function fetchCustomersFromSupabase(): Promise<Customer[]> {
@@ -212,7 +323,6 @@ export async function updateCustomerVipInSupabase(
       updatePayload.notes = notes;
     }
 
-    // Try by id (if uuid) or by phone
     let res = await supabase.from('customers').update(updatePayload).eq('phone', customerIdOrPhone);
     if (res.error && customerIdOrPhone.includes('-')) {
       res = await supabase.from('customers').update(updatePayload).eq('id', customerIdOrPhone);
@@ -254,7 +364,7 @@ export async function insertCustomerToSupabase(customer: Partial<Customer>): Pro
 }
 
 // ==========================================
-// 3. DISPUTE CLAIMS (Supabase table: dispute_claims)
+// 4. DISPUTE CLAIMS (Supabase table: dispute_claims)
 // ==========================================
 
 export async function fetchDisputeClaimsFromSupabase(): Promise<DisputeClaim[]> {
@@ -374,7 +484,7 @@ export async function deleteDisputeClaimFromSupabase(id: string): Promise<{ succ
 }
 
 // ==========================================
-// 4. FINANCIAL LEDGER (Supabase table: financial_ledger)
+// 5. FINANCIAL LEDGER (Supabase table: financial_ledger)
 // ==========================================
 
 export async function fetchFinancialLedgerFromSupabase(): Promise<FinancialLedgerEntry[]> {

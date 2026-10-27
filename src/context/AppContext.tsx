@@ -33,6 +33,7 @@ import {
   fetchParcelsFromSupabase,
   updateParcelStatusInSupabase,
   insertParcelToSupabase,
+  insertParcelsBatchToSupabase,
   deleteParcelFromSupabase,
   fetchCustomersFromSupabase,
   updateCustomerVipInSupabase,
@@ -89,6 +90,7 @@ interface AppContextType {
   disputeClaims: DisputeClaim[];
   financialLedger: FinancialLedgerEntry[];
   refreshSupabaseData: () => Promise<void>;
+  syncAllToSupabase: () => Promise<{ success: boolean; count: number }>;
   addDisputeClaim: (claim: Omit<DisputeClaim, 'id' | 'created_at'>) => Promise<void>;
   updateDisputeClaim: (id: string, updates: Partial<DisputeClaim>) => Promise<void>;
   deleteDisputeClaim: (id: string) => Promise<void>;
@@ -209,10 +211,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remoteParcels && remoteParcels.length > 0) {
         setParcels(prev => {
           const map = new Map<string, WarehouseParcel>();
-          prev.forEach(p => map.set(p.parcelCode, p));
-          remoteParcels.forEach(p => {
-            const ext = map.get(p.parcelCode);
-            map.set(p.parcelCode, ext ? { ...ext, status: p.status } : p);
+          // Index existing parcels
+          prev.forEach(p => map.set(p.parcelCode.toUpperCase(), p));
+          // Remote parcels take priority for latest status and data
+          remoteParcels.forEach(rp => {
+            const key = rp.parcelCode.toUpperCase();
+            const existing = map.get(key);
+            if (existing) {
+              map.set(key, {
+                ...existing,
+                status: rp.status,
+                customerName: rp.customerName || existing.customerName,
+                customerPhone: rp.customerPhone || existing.customerPhone,
+                warehouseCost: rp.warehouseCost ?? existing.warehouseCost,
+                customerPrice: rp.customerPrice ?? existing.customerPrice,
+                weightKg: rp.weightKg ?? existing.weightKg,
+                notes: rp.notes || existing.notes,
+              });
+            } else {
+              map.set(key, rp);
+            }
           });
           return Array.from(map.values());
         });
@@ -239,6 +257,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (remoteLedger && remoteLedger.length > 0) setFinancialLedger(remoteLedger);
     } catch (err) {
       console.warn('Sync error:', err);
+    }
+  };
+
+  const syncAllToSupabase = async (): Promise<{ success: boolean; count: number }> => {
+    try {
+      const res = await insertParcelsBatchToSupabase(parcels);
+      await refreshSupabaseData();
+      return { success: res.success, count: res.insertedCount };
+    } catch (err) {
+      return { success: false, count: 0 };
     }
   };
 
@@ -408,8 +436,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return all;
     });
 
-    formatted.forEach(parcel => {
-      insertParcelToSupabase(parcel).catch(err => console.warn(err));
+    // Batch upsert to Supabase
+    insertParcelsBatchToSupabase(formatted).catch(err => {
+      console.warn('Batch insert error to Supabase:', err);
     });
 
     sound.playSuccess();
@@ -816,6 +845,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         disputeClaims,
         financialLedger,
         refreshSupabaseData,
+        syncAllToSupabase,
         addDisputeClaim,
         updateDisputeClaim,
         deleteDisputeClaim,
