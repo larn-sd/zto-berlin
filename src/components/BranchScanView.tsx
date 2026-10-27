@@ -137,7 +137,7 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
         setUnmanifestedForm({
           date: new Date().toISOString().split('T')[0],
           parcelCode: raw,
-          shippingCode: raw,
+          shippingCode: '', // STRICT: Keep distinct, do NOT merge or copy parcelCode into shippingCode
           customerName: '',
           customerPhone: '',
           customerPrice: '20000',
@@ -179,7 +179,7 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
     const p = registerUnmanifestedParcel({
       date: new Date().toISOString().split('T')[0],
       parcelCode: codeToRegister,
-      shippingCode: codeToRegister,
+      shippingCode: '', // STRICT: Never mix shippingCode with parcelCode
       customerName: 'ລູກຄ້າ',
       customerPhone: '',
       customerPrice: 20000,
@@ -200,19 +200,19 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
   // Full detailed save for unmanifested item
   const handleRegisterUnmanifested = (e: React.FormEvent) => {
     e.preventDefault();
-    const pCode = unmanifestedForm.parcelCode.trim().toUpperCase() || unmanifestedForm.shippingCode.trim().toUpperCase();
-    const sCode = unmanifestedForm.shippingCode.trim().toUpperCase() || unmanifestedForm.parcelCode.trim().toUpperCase();
+    const pCode = unmanifestedForm.parcelCode.trim().toUpperCase();
+    const sCode = unmanifestedForm.shippingCode.trim().toUpperCase();
 
     if (!pCode && !sCode) {
-      setUnmanifestedError('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ ຫຼື ລະຫັດຂົນສົ່ງ');
+      setUnmanifestedError('ກະລຸນາປ້ອນລະຫັດເຄື່ອງ (5. ລະຫັດເຄື່ອງ)');
       return;
     }
     setUnmanifestedError(null);
 
     const p = registerUnmanifestedParcel({
       date: unmanifestedForm.date || new Date().toISOString().split('T')[0],
-      parcelCode: pCode,
-      shippingCode: sCode,
+      parcelCode: pCode || sCode,
+      shippingCode: sCode, // Keeps shippingCode distinct, do NOT force-copy parcelCode
       customerName: unmanifestedForm.customerName.trim() || 'ລູກຄ້າ',
       customerPhone: unmanifestedForm.customerPhone.trim(),
       customerPrice: Number(unmanifestedForm.customerPrice) || 20000,

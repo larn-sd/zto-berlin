@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 import { 
   User, 
   WarehouseParcel, 
@@ -201,6 +202,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.setEnabled(soundEnabled);
   }, [parcels, bills, customers, scanLogs, users, disputeClaims, financialLedger, soundEnabled]);
 
+  // BroadcastChannel for instant cross-tab sync on same computer / device
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  const notifyCrossTabUpdate = useCallback(() => {
+    try {
+      broadcastChannelRef.current?.postMessage({ type: 'DATA_SYNC_TRIGGER', timestamp: Date.now() });
+    } catch {}
+  }, []);
+
   const refreshSupabaseData = async () => {
     try {
       const health = await checkSupabaseHealth();
@@ -210,34 +220,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const remoteParcels = await fetchParcelsFromSupabase();
       if (remoteParcels && remoteParcels.length > 0) {
         setParcels(prev => {
-          const map = new Map<string, WarehouseParcel>();
-          // Index existing parcels
-          prev.forEach(p => map.set(p.parcelCode.toUpperCase(), p));
-          // Remote parcels take priority for latest status and data
-          remoteParcels.forEach(rp => {
+          // Index existing parcels to preserve local shipping codes & notes
+          const localMap = new Map<string, WarehouseParcel>();
+          prev.forEach(p => {
+            // Exclude demo mock parcels (p-101, p-102, etc.) from retaining when Supabase has actual records
+            if (!p.id.startsWith('p-10')) {
+              localMap.set(p.parcelCode.toUpperCase(), p);
+            }
+          });
+
+          // Canonical list is strictly driven by Supabase records
+          const canonicalList = remoteParcels.map(rp => {
             const key = rp.parcelCode.toUpperCase();
-            const existing = map.get(key);
+            const existing = localMap.get(key);
             if (existing) {
-              map.set(key, {
-                ...existing,
-                status: rp.status,
+              return {
+                ...rp,
                 // CRITICAL: Strictly preserve shippingCode! Never overwrite existing shipping code with parcel code
                 shippingCode: (rp.shippingCode && rp.shippingCode !== rp.parcelCode)
                   ? rp.shippingCode
                   : (existing.shippingCode || rp.shippingCode || ''),
-                customerName: rp.customerName || existing.customerName,
-                customerPhone: rp.customerPhone || existing.customerPhone,
-                warehouseCost: rp.warehouseCost ?? existing.warehouseCost,
-                customerPrice: rp.customerPrice ?? existing.customerPrice,
-                weightKg: rp.weightKg ?? existing.weightKg,
                 notes: rp.notes || existing.notes,
-              });
-            } else {
-              map.set(key, rp);
+              };
+            }
+            return rp;
+          });
+
+          // Retain any newly added local parcel created within the last 45 seconds that is still in-flight
+          const remoteKeySet = new Set(remoteParcels.map(rp => rp.parcelCode.toUpperCase()));
+          const now = Date.now();
+          prev.forEach(p => {
+            const key = p.parcelCode.toUpperCase();
+            if (!remoteKeySet.has(key)) {
+              const isRecentLocal = p.id.startsWith('p-') && !p.id.startsWith('p-10') && (now - parseInt(p.id.split('-')[1] || '0', 10) < 45000);
+              if (isRecentLocal) {
+                canonicalList.unshift(p);
+              }
             }
           });
-          return Array.from(map.values());
+
+          return canonicalList;
         });
+
+        // Reconstruct / sync bills for delivered parcels so all browsers and devices see identical bill history
+        const deliveredParcels = remoteParcels.filter(p => p.status === 'delivered');
+        if (deliveredParcels.length > 0) {
+          setBills(prevBills => {
+            const existingBillParcelIds = new Set(prevBills.flatMap(b => b.parcelIds || []));
+            const unbilledDelivered = deliveredParcels.filter(p => !existingBillParcelIds.has(p.id) && !existingBillParcelIds.has(p.parcelCode));
+            
+            if (unbilledDelivered.length === 0) return prevBills;
+
+            const groups = new Map<string, WarehouseParcel[]>();
+            unbilledDelivered.forEach(p => {
+              const groupKey = `${p.date}_${p.customerPhone || p.customerName}`;
+              const list = groups.get(groupKey) || [];
+              list.push(p);
+              groups.set(groupKey, list);
+            });
+
+            const newBills: CheckoutBill[] = [];
+            groups.forEach((items) => {
+              const first = items[0];
+              const totalCost = items.reduce((s, x) => s + (x.warehouseCost || 0), 0);
+              const totalPrice = items.reduce((s, x) => s + (x.customerPrice || 0), 0);
+              const isDebt = first.notes?.includes('debt');
+              newBills.push({
+                id: `BILL-${first.date.replace(/-/g, '')}-${first.parcelCode.slice(-4)}`,
+                date: first.date,
+                timestamp: `${first.date} 12:00:00`,
+                customerName: first.customerName,
+                customerPhone: first.customerPhone,
+                parcelIds: items.map(x => x.id),
+                parcels: items,
+                totalWarehouseCost: totalCost,
+                totalCustomerPrice: totalPrice,
+                profit: totalPrice - totalCost,
+                paymentMethod: isDebt ? 'debt' : (first.notes?.includes('transfer') ? 'transfer' : 'cash'),
+                paymentStatus: isDebt ? 'unpaid' : 'paid',
+                cashierName: 'Staff',
+                cashierId: 'usr-1',
+                notes: first.notes || ''
+              });
+            });
+
+            return [...newBills, ...prevBills];
+          });
+        }
       }
 
       const remoteCustomers = await fetchCustomersFromSupabase();
@@ -268,17 +337,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await insertParcelsBatchToSupabase(parcels);
       await refreshSupabaseData();
+      notifyCrossTabUpdate();
       return { success: res.success, count: res.insertedCount };
     } catch (err) {
       return { success: false, count: 0 };
     }
   };
 
+  // Real-time synchronization across all tabs and devices
   useEffect(() => {
+    // 1. Initial immediate fetch
     refreshSupabaseData();
-    const interval = setInterval(refreshSupabaseData, 15000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // 2. Cross-tab BroadcastChannel listener (Instant 0ms sync between multiple tabs on the same computer)
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const bc = new BroadcastChannel('zto_cross_tab_sync');
+      broadcastChannelRef.current = bc;
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'DATA_SYNC_TRIGGER') {
+          refreshSupabaseData();
+        }
+      };
+    }
+
+    // 3. Storage event listener for older browsers
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.PARCELS || e.key === STORAGE_KEYS.BILLS) {
+        refreshSupabaseData();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // 4. Supabase Realtime WebSocket Subscription (Instant <200ms sync across different devices/phones/computers)
+    const channel = supabase
+      .channel('zto_logistics_realtime_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parcels' }, () => {
+        refreshSupabaseData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
+        refreshSupabaseData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dispute_claims' }, () => {
+        refreshSupabaseData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'financial_ledger' }, () => {
+        refreshSupabaseData();
+      })
+      .subscribe();
+
+    // 5. Polling heartbeat every 3.5 seconds as a guaranteed fallback for mobile sleep/wake
+    const interval = setInterval(refreshSupabaseData, 3500);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.close();
+      }
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [notifyCrossTabUpdate]);
 
   const addDisputeClaim = async (claimData: Omit<DisputeClaim, 'id' | 'created_at'>) => {
     const newClaim: DisputeClaim = {
@@ -441,10 +559,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     // Batch upsert to Supabase
-    insertParcelsBatchToSupabase(formatted).catch(err => {
+    insertParcelsBatchToSupabase(formatted).then(() => {
+      refreshSupabaseData();
+      notifyCrossTabUpdate();
+    }).catch(err => {
       console.warn('Batch insert error to Supabase:', err);
     });
 
+    notifyCrossTabUpdate();
     sound.playSuccess();
     return formatted.length;
   };
@@ -472,7 +594,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setParcels(prev => [newParcel, ...prev]);
-    insertParcelToSupabase(newParcel).catch(err => console.warn(err));
+    insertParcelToSupabase(newParcel).then(() => {
+      refreshSupabaseData();
+      notifyCrossTabUpdate();
+    }).catch(err => console.warn(err));
+
+    notifyCrossTabUpdate();
 
     if (newParcel.customerPhone && newParcel.customerName) {
       addOrUpdateCustomer({
@@ -488,16 +615,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const existing = parcels.find(p => p.id === id);
     setParcels(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
     if (existing && updatedData.status) {
-      updateParcelStatusInSupabase(existing.parcelCode, updatedData.status).catch(err => console.warn(err));
+      updateParcelStatusInSupabase(existing.parcelCode, updatedData.status).then(() => {
+        refreshSupabaseData();
+        notifyCrossTabUpdate();
+      }).catch(err => console.warn(err));
     }
+    notifyCrossTabUpdate();
   };
 
   const deleteParcel = (id: string) => {
     const existing = parcels.find(p => p.id === id);
     setParcels(prev => prev.filter(p => p.id !== id));
     if (existing) {
-      deleteParcelFromSupabase(existing.parcelCode).catch(err => console.warn(err));
+      deleteParcelFromSupabase(existing.parcelCode).then(() => {
+        refreshSupabaseData();
+        notifyCrossTabUpdate();
+      }).catch(err => console.warn(err));
     }
+    notifyCrossTabUpdate();
   };
 
   const scanArrivalCode = (rawCode: string, options?: { autoRegister?: boolean }): ScanResult => {
@@ -546,7 +681,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       setScanLogs(prev => [log, ...prev]);
 
-      updateParcelStatusInSupabase(parcel.parcelCode, 'in_branch').catch(err => console.warn(err));
+      updateParcelStatusInSupabase(parcel.parcelCode, 'in_branch').then(() => {
+        refreshSupabaseData();
+        notifyCrossTabUpdate();
+      }).catch(err => console.warn(err));
+      notifyCrossTabUpdate();
       sound.playSuccess();
       return { success: true, type: 'matched', message: 'Arrival scanned successfully', parcel: updated };
     }
@@ -597,7 +736,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setParcels(prev => [newParcel, ...prev]);
-    insertParcelToSupabase(newParcel).catch(err => console.warn(err));
+    insertParcelToSupabase(newParcel).then(() => {
+      refreshSupabaseData();
+      notifyCrossTabUpdate();
+    }).catch(err => console.warn(err));
+    notifyCrossTabUpdate();
     sound.playSuccess();
     return newParcel;
   };
@@ -644,9 +787,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       billId
     } : p));
 
-    checkoutItems.forEach(p => {
-      updateParcelStatusInSupabase(p.parcelCode, 'delivered', data.paymentMethod).catch(err => console.warn(err));
-    });
+    Promise.all(checkoutItems.map(p => updateParcelStatusInSupabase(p.parcelCode, 'delivered', data.paymentMethod)))
+      .then(() => {
+        refreshSupabaseData();
+        notifyCrossTabUpdate();
+      })
+      .catch(err => console.warn(err));
 
     if (!isDebt) {
       addLedgerEntry({
@@ -670,12 +816,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
+    notifyCrossTabUpdate();
     sound.playCheckout();
     return newBill;
   };
 
   const updateBill = (billId: string, updatedData: Partial<CheckoutBill>) => {
     setBills(prev => prev.map(b => b.id === billId ? { ...b, ...updatedData } : b));
+    notifyCrossTabUpdate();
     sound.playSuccess();
   };
 
@@ -692,6 +840,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } : p));
     }
     setBills(prev => prev.filter(b => b.id !== billId));
+    notifyCrossTabUpdate();
     sound.playSuccess();
   };
 

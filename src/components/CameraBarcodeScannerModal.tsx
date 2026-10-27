@@ -101,7 +101,23 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     }
   }, [isOpen, selectedDeviceId]);
 
-  // Successful scan handler
+  const onScanRef = useRef(onScan);
+  const onCloseRef = useRef(onClose);
+  const continuousModeRef = useRef(continuousMode);
+
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    continuousModeRef.current = continuousMode;
+  }, [continuousMode]);
+
+  // Successful scan handler with stable refs
   const handleSuccessfulScan = useCallback((rawText: string) => {
     const clean = cleanScannedBarcode(rawText);
     if (!clean) return;
@@ -115,7 +131,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     lastScanTimestampRef.current = now;
     lastScannedTextRef.current = clean;
 
-    // Trigger visual flash & audio & vibration
+    // Trigger visual flash & audio & vibration without disturbing video stream
     try {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate([120]);
@@ -124,18 +140,20 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
 
     sound.playSuccess();
     setFlashSuccess(true);
-    setTimeout(() => setFlashSuccess(false), 500);
+    setTimeout(() => setFlashSuccess(false), 450);
 
     setLastScannedCode(clean);
     setScannedCount(prev => prev + 1);
 
-    // Call external handler
-    onScan(clean);
+    // Call external handler via ref so parent state changes do NOT cause camera stream teardown
+    if (onScanRef.current) {
+      onScanRef.current(clean);
+    }
 
-    if (!continuousMode) {
+    if (!continuousModeRef.current) {
       handleClose();
     }
-  }, [continuousMode, onScan]);
+  }, []);
 
   // Frame processing loop: high-speed sampling with zero video stream disruption
   const runFrameScanner = useCallback(() => {
@@ -165,7 +183,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         const vw = video.videoWidth;
         const vh = video.videoHeight;
 
-        // Crop the central 80% width and 45% height (matching the reticle frame)
+        // Crop the central 82% width and 45% height (matching the reticle frame)
         const cropW = Math.floor(vw * 0.82);
         const cropH = Math.floor(vh * 0.45);
         const cropX = Math.floor((vw - cropW) / 2);
@@ -193,7 +211,13 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
     }
   }, [handleSuccessfulScan]);
 
-  // Start persistent camera stream
+  // Keep runFrameScanner reference stable in a ref
+  const runFrameScannerRef = useRef(runFrameScanner);
+  useEffect(() => {
+    runFrameScannerRef.current = runFrameScanner;
+  }, [runFrameScanner]);
+
+  // Start persistent camera stream (NEVER teardown on scan or parent re-renders)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -235,7 +259,9 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute('playsinline', 'true');
           videoRef.current.setAttribute('webkit-playsinline', 'true');
-          await videoRef.current.play();
+          await videoRef.current.play().catch(e => {
+            console.warn('Video play error:', e);
+          });
         }
 
         // Check torch support
@@ -250,7 +276,10 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         if (isMounted) {
           setScannerReady(true);
           isScanningActiveRef.current = true;
-          scanLoopIdRef.current = requestAnimationFrame(runFrameScanner);
+          if (scanLoopIdRef.current) {
+            cancelAnimationFrame(scanLoopIdRef.current);
+          }
+          scanLoopIdRef.current = requestAnimationFrame(runFrameScannerRef.current);
         }
       } catch (err: any) {
         if (!isMounted) return;
@@ -283,7 +312,7 @@ export const CameraBarcodeScannerModal: React.FC<CameraBarcodeScannerModalProps>
         videoRef.current.srcObject = null;
       }
     };
-  }, [isOpen, selectedDeviceId, facingMode, runFrameScanner]);
+  }, [isOpen, selectedDeviceId, facingMode]);
 
   const handleClose = () => {
     isScanningActiveRef.current = false;

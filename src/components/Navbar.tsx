@@ -179,19 +179,34 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onSelectTab }) => {
               </button>
             )}
 
-            {/* Supabase Database Connection Status */}
-            <button
-              onClick={() => setShowSupabaseModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition shadow-2xs cursor-pointer"
-              title="ຄລິກເພື່ອເບິ່ງສະຖານະ Supabase Database"
-            >
-              <Database className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Supabase:</span>
-              <span className="flex items-center gap-1 font-bold">
-                <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'}`}></span>
-                {supabaseConnected ? 'Connected' : 'Live'}
-              </span>
-            </button>
+            {/* Supabase Database Connection & Realtime Cross-Device Sync Status */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowSupabaseModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition shadow-2xs cursor-pointer"
+                title="ຄລິກເພື່ອເບິ່ງສະຖານະ Supabase Database & Realtime Sync"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden sm:inline">Cloud Sync:</span>
+                <span className="flex items-center gap-1 font-bold font-mono">
+                  <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                  <span>{parcels.length}</span>
+                </span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  setIsRefreshing(true);
+                  await refreshSupabaseData();
+                  setTimeout(() => setIsRefreshing(false), 600);
+                }}
+                disabled={isRefreshing}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition cursor-pointer"
+                title="ກົດດຶງຂໍ້ມູນລ່າສຸດຈາກ Supabase ທັນທີ (Sync All Devices Now)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
+              </button>
+            </div>
 
             {/* Sound toggle */}
             <button
