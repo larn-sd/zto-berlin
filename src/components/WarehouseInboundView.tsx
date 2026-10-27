@@ -216,7 +216,11 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
     });
 
     setShowAddModal(false);
-    alert('ເພີ່ມພັດສະດຸໃໝ່ສຳເລັດ! ຂໍ້ມູນຖືກສົ່ງເຂົ້າໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ" ແລ້ວ.');
+    setNotification({
+      type: 'success',
+      message: 'ເພີ່ມພັດສະດຸໃໝ່ສຳເລັດ! ຂໍ້ມູນຖືກສົ່ງເຂົ້າໜ້າ "ຕິດຕາມເຄື່ອງທັງໝົດ" ແລະ Supabase ແລ້ວ.'
+    });
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const handleExportBatchExcel = (summary: DailyShipmentSummary) => {
@@ -252,6 +256,48 @@ export const WarehouseInboundView: React.FC<WarehouseInboundViewProps> = ({ onNa
           </button>
         </div>
       )}
+
+      {/* Code Clarification Banner: Shipping Code vs Parcel Code */}
+      <div className="bg-gradient-to-r from-indigo-50 via-sky-50 to-emerald-50 border border-indigo-200/80 rounded-2xl p-4 text-xs text-indigo-950 shadow-xs">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-indigo-100 pb-2 mb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
+            <span className="font-bold text-sm text-indigo-950">📌 ຂໍ້ແນະນຳຄວາມແຕກຕ່າງລະຫວ່າງ 2 ລະຫັດ (Code Guide)</span>
+          </div>
+          <span className="text-[11px] font-semibold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+            ລະບົບແຍກເກັບຕ່າງຫາກ ບໍ່ລວມກັນ
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="bg-white/80 p-3 rounded-xl border border-indigo-100 flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0 text-xs">
+              4
+            </div>
+            <div>
+              <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                <span>🚚 ລະຫັດຂົນສົ່ງ (Shipping Code / Waybill)</span>
+              </div>
+              <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
+                ລະຫັດໃບສົ່ງເຄື່ອງ ຫຼື ໃບກຳກັບສິນຄ້າຈາກສາງໃຫຍ່ (ເຊັ່ນ: <span className="font-mono font-bold text-indigo-700">79040744923446</span> ຫຼື <span className="font-mono font-bold text-indigo-700">EXP-LA-1001</span>)
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white/80 p-3 rounded-xl border border-emerald-100 flex items-start gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center shrink-0 text-xs">
+              5
+            </div>
+            <div>
+              <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                <span>📦 ລະຫັດເຄື່ອງ (Parcel Code / Barcode)</span>
+              </div>
+              <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
+                ບາໂຄດຕິດຢູ່ໜ້າກ່ອງພັດສະດຸຕົວຈິງທີ່ໃຊ້ສະແກນ (ເຊັ່ນ: <span className="font-mono font-bold text-emerald-700">77130543129348</span> ຫຼື <span className="font-mono font-bold text-emerald-700">77130542000249</span>)
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Top Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">

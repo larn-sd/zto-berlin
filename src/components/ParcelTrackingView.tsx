@@ -203,6 +203,21 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
         </div>
       </div>
 
+      {/* Code Clarification Banner: Shipping Code vs Parcel Code */}
+      <div className="bg-gradient-to-r from-sky-50 via-indigo-50 to-emerald-50 border border-indigo-200/80 rounded-2xl p-3.5 text-xs text-indigo-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse shrink-0" />
+          <div className="text-[11px] sm:text-xs">
+            <span className="font-bold text-slate-900">📌 ຂໍ້ແນະນຳລະຫັດ: </span>
+            <span className="text-sky-800 font-semibold">🚚 4. ລະຫັດຂົນສົ່ງ (Shipping Code)</span> = ລະຫັດໃບສົ່ງເຄື່ອງສາງໃຫຍ່ |{' '}
+            <span className="text-indigo-800 font-semibold">📦 5. ລະຫັດເຄື່ອງ (Parcel Code)</span> = ບາໂຄດຕິດໜ້າກ່ອງ
+          </div>
+        </div>
+        <span className="text-[10px] font-bold bg-white text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-full shrink-0">
+          ແຍກເກັບຕ່າງຫາກ ບໍ່ລວມກັນ
+        </span>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div 
@@ -451,9 +466,22 @@ export const ParcelTrackingView: React.FC<ParcelTrackingViewProps> = ({ onNaviga
                     <tr key={parcel.id} className="hover:bg-slate-50/70 transition">
                       <td className="py-3 px-4 text-slate-600 font-mono">{formatDateDisplay(parcel.date)}</td>
                       <td className="py-3 px-4 font-semibold text-slate-900">{parcel.customerName}</td>
-                      <td className="py-3 px-4 font-mono text-slate-600">{parcel.customerPhone || '-'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{parcel.shippingCode}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-indigo-700">{parcel.parcelCode}</td>
+                      <td className="py-3 px-4 font-mono text-xs">
+                        {parcel.shippingCode ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-800 font-semibold border border-sky-200">
+                            <span>🚚</span>
+                            <span>{parcel.shippingCode}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">- ບໍ່ມີ -</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono font-bold text-xs">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                          <span>📦</span>
+                          <span>{parcel.parcelCode}</span>
+                        </span>
+                      </td>
 
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5">

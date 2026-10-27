@@ -102,21 +102,24 @@ function toDateString(d?: string): string {
  * - status: 'PENDING_SCAN' | 'IN_BRANCH' | 'DELIVERED' | 'UNMANIFESTED'
  */
 export function mapParcelToSupabaseRow(p: Partial<WarehouseParcel>) {
-  const trackingNumber = (p.parcelCode || p.shippingCode || `TRK-${Date.now()}`).trim().toUpperCase();
+  const parcelCode = (p.parcelCode || p.shippingCode || `TRK-${Date.now()}`).trim().toUpperCase();
+  const shippingCode = (p.shippingCode || '').trim().toUpperCase();
   const supaStatus = toSupabaseStatus(p.status || (p.isUnmanifested ? 'unmanifested' : 'pending_arrival'));
   const isDelivered = supaStatus === 'DELIVERED';
 
   return {
-    tracking_number: trackingNumber,
+    tracking_number: parcelCode,
     batch_date: toDateString(p.date),
     customer_name: (p.customerName || 'ລູກຄ້າ').trim(),
     customer_phone: (p.customerPhone || '').trim(),
+    // Preserve Shipping Code distinctly inside customer_id text field with SHIP: prefix
+    customer_id: shippingCode ? `SHIP:${shippingCode}` : null,
     zto_weight: Number(p.weightKg) > 0 ? Number(p.weightKg) : 1.0, // NOT NULL constraint
     actual_weight: p.weightKg ? Number(p.weightKg) : null,
     zto_cost: Number(p.warehouseCost) >= 0 ? Number(p.warehouseCost) : 0, // NOT NULL constraint
     customer_charge: Number(p.customerPrice) >= 0 ? Number(p.customerPrice) : 0,
     status: supaStatus,
-    payment_status: isDelivered ? 'PAID' : 'PENDING',
+    payment_status: isDelivered ? (p.notes?.includes('debt') ? 'PENDING' : 'PAID') : 'PENDING',
     payment_method: isDelivered ? (p.notes || 'cash') : null,
     paid_at: isDelivered ? new Date().toISOString() : null,
   };
@@ -143,12 +146,19 @@ export async function fetchParcelsFromSupabase(): Promise<WarehouseParcel[]> {
     return data.map((row: any) => {
       const localStatus = fromSupabaseStatus(row.status);
       const isUn = row.status === 'UNMANIFESTED' || localStatus === 'unmanifested';
+      
+      // Extract Shipping Code (ລະຫັດຂົນສົ່ງ) strictly separate from Parcel Code (ລະຫັດເຄື່ອງ)
+      const rawCustomerId = (row.customer_id || '').trim();
+      const extractedShippingCode = rawCustomerId.startsWith('SHIP:')
+        ? rawCustomerId.replace('SHIP:', '').trim()
+        : (rawCustomerId && !rawCustomerId.includes('-') ? rawCustomerId : '');
+
       return {
         id: row.id || `sp-${Date.now()}-${Math.random()}`,
         date: row.batch_date || (row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
         customerName: row.customer_name || 'ລູກຄ້າ',
         customerPhone: row.customer_phone || '',
-        shippingCode: row.tracking_number || '',
+        shippingCode: extractedShippingCode, // Strictly kept separate! Never fallback to tracking_number
         parcelCode: row.tracking_number || '',
         customerPrice: Number(row.customer_charge) || 15000,
         warehouseCost: Number(row.zto_cost) || 0,

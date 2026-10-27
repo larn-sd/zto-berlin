@@ -526,11 +526,17 @@ export const CustomerCheckoutView: React.FC = () => {
                         {idx + 1}
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900 text-sm">{item.parcelCode}</span>
-                          <span className="font-mono text-xs text-slate-500">({item.shippingCode})</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-slate-900 text-xs sm:text-sm bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-200">
+                            📦 {item.parcelCode}
+                          </span>
+                          {item.shippingCode ? (
+                            <span className="font-mono text-xs text-sky-800 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200 font-semibold">
+                              🚚 {item.shippingCode}
+                            </span>
+                          ) : null}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
+                        <div className="text-xs text-slate-500 mt-1">
                           <span>ລູກຄ້າ: {item.customerName}</span>
                           {isAdmin && <span> • ຕົ້ນທຶນສາງ: {formatKip(item.warehouseCost)}</span>}
                         </div>

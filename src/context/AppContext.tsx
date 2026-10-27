@@ -221,6 +221,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               map.set(key, {
                 ...existing,
                 status: rp.status,
+                // CRITICAL: Strictly preserve shippingCode! Never overwrite existing shipping code with parcel code
+                shippingCode: (rp.shippingCode && rp.shippingCode !== rp.parcelCode)
+                  ? rp.shippingCode
+                  : (existing.shippingCode || rp.shippingCode || ''),
                 customerName: rp.customerName || existing.customerName,
                 customerPhone: rp.customerPhone || existing.customerPhone,
                 warehouseCost: rp.warehouseCost ?? existing.warehouseCost,
@@ -550,7 +554,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (options?.autoRegister) {
       const newP = registerUnmanifestedParcel({
         parcelCode: cleanCode,
-        shippingCode: cleanCode,
+        shippingCode: '', // Keep empty - do not mix shippingCode with parcelCode
         customerName: 'Customer',
         customerPhone: '',
         customerPrice: 20000,
@@ -575,7 +579,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `p-unmanifested-${Date.now()}`,
       date: isObj && dataOrCode.date ? dataOrCode.date : now.toISOString().split('T')[0],
       parcelCode: cleanCode,
-      shippingCode: (isObj && dataOrCode.shippingCode ? dataOrCode.shippingCode : cleanCode).trim().toUpperCase(),
+      shippingCode: (isObj && dataOrCode.shippingCode ? dataOrCode.shippingCode : '').trim().toUpperCase(),
       weightKg: isObj && dataOrCode.weightKg ? Number(dataOrCode.weightKg) : undefined,
       volumeCbm: isObj ? dataOrCode.volumeCbm : undefined,
       warehouseCostYuan: isObj && dataOrCode.warehouseCostYuan ? Number(dataOrCode.warehouseCostYuan) : undefined,

@@ -500,41 +500,50 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
 
                 {/* Helper Quick-Test buttons for easy preview */}
                 <div className="mt-5 pt-4 border-t border-slate-800">
-                  <div className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>ກົດປຸ່ມທົດສອບສະແກນຕົວຢ່າງ (One-Click Test):</span>
+                  <div className="text-xs font-medium text-slate-400 mb-2 flex items-center justify-between flex-wrap gap-2">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>ກົດປຸ່ມທົດສອບສະແກນດ່ວນ (One-Click Test):</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      📦 = ລະຫັດເຄື່ອງ | 🚚 = ລະຫັດຂົນສົ່ງ
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {samplePendingParcelCode && (
-                      <button
-                        onClick={() => triggerScan(samplePendingParcelCode)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-900/60 border border-slate-700 text-xs font-mono text-indigo-300 hover:text-white transition"
-                      >
-                        ✓ ທຽບລະຫັດເຄື່ອງ: {samplePendingParcelCode}
-                      </button>
-                    )}
-
-                    {samplePendingShippingCode && (
-                      <button
-                        onClick={() => triggerScan(samplePendingShippingCode)}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-900/60 border border-slate-700 text-xs font-mono text-cyan-300 hover:text-white transition"
-                      >
-                        ✓ ທຽບລະຫັດຂົນສົ່ງ: {samplePendingShippingCode}
-                      </button>
-                    )}
-
                     <button
-                      onClick={() => triggerScan('77130496046222')}
-                      className="px-2.5 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 border border-amber-500/60 text-xs font-mono font-bold text-amber-300 hover:text-white transition flex items-center gap-1.5 shadow-sm"
+                      type="button"
+                      onClick={() => triggerScan('77130543129348')}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/60 text-xs font-mono font-bold text-emerald-300 hover:text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      title="ທົດສອບສະແກນລະຫັດເຄື່ອງ 77130543129348 (ZTO-HCH / ລະຫັດຂົນສົ່ງ 79040744923446)"
                     >
-                      <span>⚡ ທົດສອບ: 77130496046222 (ສາງໃຫຍ່ລືມ)</span>
+                      <span>📦 77130543129348 (ZTO-HCH)</span>
                     </button>
 
                     <button
-                      onClick={() => triggerScan(`PKG-NEW-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      className="px-2.5 py-1.5 rounded-lg bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 text-xs font-mono text-purple-300 hover:text-white transition"
+                      type="button"
+                      onClick={() => triggerScan('77130542000249')}
+                      className="px-2.5 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/60 text-xs font-mono font-bold text-indigo-300 hover:text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      title="ທົດສອບສະແກນລະຫັດເຄື່ອງ 77130542000249 (tom)"
                     >
-                      + ທົດສອບລະຫັດອື່ນ (ສາງໃຫຍ່ລືມ)
+                      <span>📦 77130542000249 (tom)</span>
+                    </button>
+
+                    {samplePendingShippingCode && (
+                      <button
+                        type="button"
+                        onClick={() => triggerScan(samplePendingShippingCode)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-900/60 border border-slate-700 text-xs font-mono text-cyan-300 hover:text-white transition cursor-pointer"
+                      >
+                        🚚 ລະຫັດຂົນສົ່ງ: {samplePendingShippingCode}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => triggerScan(`PKG-NEW-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      className="px-2.5 py-1.5 rounded-lg bg-purple-950/80 hover:bg-purple-900 border border-purple-500/50 text-xs font-mono text-purple-300 hover:text-white transition cursor-pointer"
+                    >
+                      + ລະຫັດອື່ນ (ສາງໃຫຍ່ລືມ)
                     </button>
                   </div>
                 </div>
@@ -581,16 +590,20 @@ export const BranchScanView: React.FC<BranchScanViewProps> = ({ onNavigateTab })
                     </h3>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-emerald-200/80 text-xs">
-                      <div>
-                        <span className="text-emerald-700 font-medium">ລະຫັດເຄື່ອງ:</span>
-                        <div className="font-mono font-bold text-slate-900 text-sm">
+                      <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200">
+                        <span className="text-emerald-800 font-bold flex items-center gap-1">
+                          <span>📦 5. ລະຫັດເຄື່ອງ (Barcode):</span>
+                        </span>
+                        <div className="font-mono font-black text-indigo-950 text-sm mt-0.5">
                           {lastResult.parcel.parcelCode}
                         </div>
                       </div>
-                      <div>
-                        <span className="text-emerald-700 font-medium">ລະຫັດຂົນສົ່ງ:</span>
-                        <div className="font-mono text-slate-900 font-semibold">
-                          {lastResult.parcel.shippingCode}
+                      <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200">
+                        <span className="text-emerald-800 font-bold flex items-center gap-1">
+                          <span>🚚 4. ລະຫັດຂົນສົ່ງ (Waybill):</span>
+                        </span>
+                        <div className="font-mono text-slate-700 font-semibold text-sm mt-0.5">
+                          {lastResult.parcel.shippingCode || '-'}
                         </div>
                       </div>
                       <div>

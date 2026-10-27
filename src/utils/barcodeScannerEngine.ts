@@ -54,12 +54,13 @@ export function createBrowserScanner(): BrowserMultiFormatReader {
 /**
  * Helper to decode a canvas image using ZXing with both Hybrid & GlobalHistogram binarizers
  */
-function decodeCanvasWithZxing(canvas: HTMLCanvasElement): string | null {
+export function decodeCanvasWithZxing(canvas: HTMLCanvasElement): string | null {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
 
   const width = canvas.width;
   const height = canvas.height;
+  if (width === 0 || height === 0) return null;
   const imgData = ctx.getImageData(0, 0, width, height);
   const rgba = imgData.data;
 
@@ -101,7 +102,7 @@ function decodeCanvasWithZxing(canvas: HTMLCanvasElement): string | null {
 /**
  * Helper to decode a canvas or data URL using Quagga2 (sub-pixel 1D specialist)
  */
-async function decodeWithQuagga(dataUrl: string): Promise<string | null> {
+export async function decodeWithQuagga(dataUrl: string): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       Quagga.decodeSingle(
@@ -269,23 +270,56 @@ export async function decodeBarcodeFromImageFile(
     }
     ctx.drawImage(img, 0, 0, w, h);
 
-    // Prepare candidate canvas list (Normal, Center Crop, Rotated, High Contrast)
+    // 1. FASTEST & MOST ACCURATE: Try native hardware BarcodeDetector on the raw image directly
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        const formats = await (window as any).BarcodeDetector.getSupportedFormats?.() || [];
+        if (formats.length > 0) {
+          const detector = new (window as any).BarcodeDetector({ formats });
+          const barcodes = await detector.detect(img);
+          if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+            URL.revokeObjectURL(imgUrl);
+            return {
+              success: true,
+              code: cleanScannedBarcode(barcodes[0].rawValue),
+              engine: 'Native BarcodeDetector (Direct)'
+            };
+          }
+        }
+      } catch {}
+    }
+
+    // Helper: rectangular crop for standard horizontal barcode
+    const createBarcodeRectCrop = (source: HTMLCanvasElement): HTMLCanvasElement => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return source;
+      const cropW = Math.floor(source.width * 0.88);
+      const cropH = Math.floor(source.height * 0.40);
+      const startX = Math.floor((source.width - cropW) / 2);
+      const startY = Math.floor((source.height - cropH) / 2);
+      canvas.width = cropW;
+      canvas.height = cropH;
+      ctx.drawImage(source, startX, startY, cropW, cropH, 0, 0, cropW, cropH);
+      return canvas;
+    };
+
+    // Prepare candidate canvas list (Normal, Rectangular Crop, Rotated, High Contrast)
     const candidates: { name: string; canvas: HTMLCanvasElement }[] = [
+      { name: 'Barcode Strip Crop', canvas: createBarcodeRectCrop(baseCanvas) },
       { name: 'Original', canvas: baseCanvas },
-      { name: 'Center Crop', canvas: createCenterCroppedCanvas(baseCanvas, 0.75) },
+      { name: 'Center Crop', canvas: createCenterCroppedCanvas(baseCanvas, 0.70) },
+      { name: 'High Contrast', canvas: createHighContrastCanvas(baseCanvas) },
       { name: 'Rotated 90°', canvas: createRotatedCanvas(baseCanvas, 90) },
       { name: 'Rotated 270°', canvas: createRotatedCanvas(baseCanvas, 270) },
       { name: 'Tilt +5°', canvas: createRotatedCanvas(baseCanvas, 5) },
       { name: 'Tilt -5°', canvas: createRotatedCanvas(baseCanvas, -5) },
-      { name: 'Tilt +10°', canvas: createRotatedCanvas(baseCanvas, 10) },
-      { name: 'Tilt -10°', canvas: createRotatedCanvas(baseCanvas, -10) },
       { name: 'Rotated 180°', canvas: createRotatedCanvas(baseCanvas, 180) },
-      { name: 'High Contrast', canvas: createHighContrastCanvas(baseCanvas) },
     ];
 
-    onProgress?.('ກຳລັງກວດສອບບາໂຄດດ້ວຍ Multi-Engine (Quagga + ZXing)...');
+    onProgress?.('ກຳລັງກວດສອບບາໂຄດດ້ວຍ Multi-Engine (ZXing + Quagga)...');
 
-    // 1. Try ZXing with GlobalHistogram on each candidate
+    // 2. Try ZXing with GlobalHistogram on each candidate
     for (const c of candidates) {
       const zxingRes = decodeCanvasWithZxing(c.canvas);
       if (zxingRes) {
@@ -294,36 +328,15 @@ export async function decodeBarcodeFromImageFile(
       }
     }
 
-    // 2. Try Quagga2 on the top candidates (Original, Center Crop, 90°)
-    for (const c of candidates.slice(0, 4)) {
+    // 3. Try Quagga2 on the top candidates (Barcode Strip, Original, High Contrast)
+    for (const c of candidates.slice(0, 3)) {
       onProgress?.(`ກຳລັງວິເຄາະບາໂຄດແບບ Sub-pixel (${c.name})...`);
-      const dataUrl = c.canvas.toDataURL('image/jpeg', 0.88);
+      const dataUrl = c.canvas.toDataURL('image/jpeg', 0.90);
       const quaggaRes = await decodeWithQuagga(dataUrl);
       if (quaggaRes) {
         URL.revokeObjectURL(imgUrl);
         return { success: true, code: quaggaRes, engine: `Quagga2 (${c.name})` };
       }
-    }
-
-    // 3. Fallback: Browser BarcodeDetector (if browser supports it)
-    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
-      try {
-        const formats = await (window as any).BarcodeDetector.getSupportedFormats?.() || [];
-        if (formats.length > 0) {
-          const detector = new (window as any).BarcodeDetector({ formats });
-          for (const c of candidates.slice(0, 3)) {
-            const barcodes = await detector.detect(c.canvas);
-            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-              URL.revokeObjectURL(imgUrl);
-              return { 
-                success: true, 
-                code: cleanScannedBarcode(barcodes[0].rawValue), 
-                engine: `Native BarcodeDetector (${c.name})` 
-              };
-            }
-          }
-        }
-      } catch {}
     }
 
     URL.revokeObjectURL(imgUrl);

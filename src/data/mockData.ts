@@ -87,7 +87,7 @@ export const INITIAL_PARCELS: WarehouseParcel[] = [
     id: 'p-77130542000249',
     date: today,
     parcelCode: '77130542000249',
-    shippingCode: '77130542000249',
+    shippingCode: '79040744923446',
     warehouseCost: 15000,
     customerPrice: 25000,
     customerName: 'tom',
@@ -97,6 +97,22 @@ export const INITIAL_PARCELS: WarehouseParcel[] = [
     weightKg: 0.6,
     notes: 'ເກີບ / 鞋 (WX91 BERLIN)',
     importedAt: `${today} 09:00`,
+    status: 'pending_arrival'
+  },
+  {
+    id: 'p-77130543129348',
+    date: today,
+    parcelCode: '77130543129348',
+    shippingCode: '79040744923446',
+    warehouseCost: 10000,
+    customerPrice: 20000,
+    customerName: 'ZTO-HCH',
+    customerPhone: '59977559',
+    customerAddress: '万象市占武里县BERLIN公司',
+    destinationBranch: 'ສາຂາ ໜອງບົວທອງ (Berlin)',
+    weightKg: 0.5,
+    notes: '日用品 (WX91 BERLIN)',
+    importedAt: `${today} 09:30`,
     status: 'pending_arrival'
   }
 ];
